@@ -191,3 +191,8 @@
 
 /* Modales altos (ficha + calculadora) con scroll en pantallas pequeñas */
 .modal-card { max-height: calc(100vh - 32px); overflow-y: auto; }
+
+/* Texto del escudo legible sobre cualquier combinación de colores */
+.crest { text-shadow: 0 0 3px rgba(0, 0, 0, .95), 0 0 6px rgba(0, 0, 0, .6); }
+.crest.crest-light { color: #050a33; text-shadow: 0 0 3px rgba(255, 255, 255, .95), 0 0 6px rgba(255, 255, 255, .7); }
+.crest { letter-spacing: 0; }

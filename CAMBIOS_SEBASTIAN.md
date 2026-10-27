@@ -64,6 +64,19 @@ Archivos nuevos: `static/css/features.css` y `static/js/features.js` (se cargan 
 Cambios menores en `templates/index.html` (menú con 6 secciones, nuevas secciones y modal de jugador)
 y en `static/js/app.js` (avisa a `features.js` al recargar datos, muestra la jornada y la calculadora en la ficha).
 
+## Tercera entrega: equipos reales de la Champions 2026/27
+
+- Nuevo script `seed_champions.py`: borra todos los equipos, partidos y jugadores y carga los
+  **36 clubes reales de la fase de liga 2026/27** (todos empiezan con 0 puntos) y **3 jugadores por club**
+  (108 en total, todos con 0 goles).
+- Jugadores tomados de la guía oficial de UEFA
+  ([Meet the 2026/27 Champions League league phase teams](https://www.uefa.com/uefachampionsleague/news/02a8-2171a88881a0-c70193b972c6-1000--meet-the-2026-27-champions-league-league-phase-teams/)):
+  el jugador clave, el jugador a seguir y el gran fichaje de verano de cada club.
+- `champions.db` ya viene cargada con estos datos. Para volver a dejarla así en cualquier momento:
+  `python seed_champions.py`.
+- Escudos: colores reales y abreviaturas (PSG, BVB, ATM, SCP…) de los 36 clubes; bandera de Azerbaiyán;
+  el texto del escudo se lee bien sobre cualquier combinación de colores.
+
 ## Cómo ejecutarlo
 
 ```bash

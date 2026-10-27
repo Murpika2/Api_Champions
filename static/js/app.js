@@ -49,6 +49,40 @@ const CLUB_COLORS = {
   "ajax": ["#d2122e", "#ffffff"],
   "napoli": ["#12a0d7", "#ffffff"],
   "tottenham": ["#132257", "#ffffff"],
+  // Clubes de la fase de liga 2026/27
+  "bayern münchen": ["#dc052d", "#0066b2"],
+  "real betis": ["#00954c", "#ffffff"],
+  "villarreal": ["#ffe667", "#005187"],
+  "aston villa": ["#670e36", "#95bfe5"],
+  "rb leipzig": ["#dd0741", "#001f47"],
+  "vfb stuttgart": ["#e32219", "#ffffff"],
+  "lille": ["#e01e13", "#20325f"],
+  "lens": ["#ec1c24", "#ffd600"],
+  "roma": ["#8e1f2f", "#f0bc42"],
+  "como": ["#1b4f9c", "#ffffff"],
+  "sporting cp": ["#008057", "#ffffff"],
+  "psv eindhoven": ["#ed1c24", "#ffffff"],
+  "feyenoord": ["#e50019", "#ffffff"],
+  "club brugge": ["#0072ce", "#000000"],
+  "galatasaray": ["#a90432", "#fdb912"],
+  "fenerbahçe": ["#163962", "#ffed00"],
+  "bodø/glimt": ["#ffd700", "#000000"],
+  "viking": ["#002c5c", "#ffffff"],
+  "shakhtar donetsk": ["#f26b1d", "#000000"],
+  "slavia praga": ["#e30613", "#ffffff"],
+  "slovan bratislava": ["#4c9ed9", "#ffffff"],
+  "aek atenas": ["#ffde00", "#000000"],
+  "lask": ["#000000", "#ffffff"],
+  "sabah": ["#0b2a5b", "#e4002b"],
+};
+
+// Abreviaturas oficiales para los escudos (si no está aquí se calculan con las iniciales)
+const CLUB_SHORT = {
+  "paris saint-germain": "PSG", "psv eindhoven": "PSV", "vfb stuttgart": "VFB", "rb leipzig": "RBL",
+  "sporting cp": "SCP", "aek atenas": "AEK", "lask": "LASK", "borussia dortmund": "BVB",
+  "real betis": "BET", "atlético de madrid": "ATM", "shakhtar donetsk": "SHA", "slavia praga": "SLA",
+  "slovan bratislava": "SLO", "bayern münchen": "FCB", "manchester united": "MUN", "manchester city": "MCI",
+  "aston villa": "AVL", "fc barcelona": "BAR", "bodø/glimt": "B/G", "inter": "INT",
 };
 
 // Códigos ISO para las banderas (imágenes de flagcdn.com, se ven igual en todos los sistemas)
@@ -58,6 +92,7 @@ const FLAGS = {
   "turquía": "tr", "austria": "at", "suiza": "ch", "ucrania": "ua", "croacia": "hr",
   "serbia": "rs", "grecia": "gr", "dinamarca": "dk", "república checa": "cz", "chequia": "cz",
   "eslovaquia": "sk", "noruega": "no", "suecia": "se", "polonia": "pl", "rusia": "ru",
+  "azerbaiyán": "az",
 };
 
 function hashHue(str) {
@@ -67,6 +102,8 @@ function hashHue(str) {
 }
 
 function initials(name) {
+  const short = CLUB_SHORT[name.trim().toLowerCase()];
+  if (short) return short;
   const words = name.replace(/[^\p{L}\p{N}\s]/gu, "").split(/\s+/).filter(Boolean);
   const skip = ["fc", "cf", "de", "del", "la", "club", "ac", "sc"];
   const main = words.filter((w) => !skip.includes(w.toLowerCase()));
@@ -83,9 +120,10 @@ function crest(name, big = false) {
     c1 = `hsl(${h} 70% 38%)`;
     c2 = `hsl(${(h + 40) % 360} 85% 55%)`;
   }
-  const dark = c1.toLowerCase() === "#ffffff";
-  const textStyle = dark ? "color:#050a33;text-shadow:none;" : "";
-  return `<span class="crest${big ? " lg-crest" : ""}" style="--c1:${c1};--c2:${c2};${textStyle}">${esc(initials(name))}</span>`;
+  // Texto oscuro si el color principal es claro (blanco, amarillo...)
+  const rgb = c1.startsWith("#") ? [1, 3, 5].map((i) => parseInt(c1.slice(i, i + 2), 16)) : null;
+  const dark = rgb && 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] > 170;
+  return `<span class="crest${big ? " lg-crest" : ""}${dark ? " crest-light" : ""}" style="--c1:${c1};--c2:${c2};">${esc(initials(name))}</span>`;
 }
 
 function flag(country) {
