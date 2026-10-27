@@ -1,5 +1,5 @@
 import sqlite3
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template, request
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required
 
 app = Flask(__name__)
@@ -64,6 +64,12 @@ def init_db():
 
 # Inicializar la base de datos al arrancar
 init_db()
+
+
+# --- 0. INTERFAZ VISUAL ---
+@app.route("/")
+def index():
+  return render_template("index.html")
 
 
 # --- 1. AUTENTICACIÓN (JWT) ---
@@ -174,6 +180,15 @@ def delete_team(team_id):
 
 
 # --- 3. REGISTRO DE PARTIDOS Y CÁLCULO AUTOMÁTICO ---
+@app.route("/api/matches", methods=["GET"])
+def get_matches():
+  conn = get_db_connection()
+  matches = conn.execute("SELECT * FROM matches ORDER BY id DESC").fetchall()
+  conn.close()
+  return jsonify([dict(row) for row in matches]), 200
+
+
+
 @app.route("/api/matches", methods=["POST"])
 @jwt_required()
 def register_match():
