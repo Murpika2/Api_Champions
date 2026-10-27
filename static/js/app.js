@@ -168,6 +168,7 @@ async function loadAll() {
     renderTeams();
     renderMatchSelects();
     renderMatches();
+    if (typeof onDataLoaded === "function") onDataLoaded(); // features.js
   } catch (err) {
     toast("No se pudo conectar con la API: " + err.message, "err");
   }
@@ -284,8 +285,10 @@ async function showTeamDetail(id) {
         <div><b>${t.gf}</b><small>GF</small></div>
         <div><b>${t.gc}</b><small>GC</small></div>
         <div><b>${t.dg > 0 ? "+" : ""}${t.dg}</b><small>DG</small></div>
-      </div>`;
+      </div>
+      <div class="detail-qual" id="detailQual"></div>`;
     openModal("#detailModal");
+    if (typeof renderQualification === "function") renderQualification(t.id, $("#detailQual")); // features.js
   } catch (err) {
     toast(err.message, "err");
   }
@@ -389,6 +392,7 @@ function renderMatches() {
     .map((m, i) => {
       const [h, a] = m.score.split("-").map((n) => parseInt(n, 10));
       return `<li class="match-item" style="animation-delay:${i * 30}ms">
+        ${m.round ? `<span class="round-tag">${esc(m.round)}</span>` : ""}
         <span class="h ${h > a ? "win" : ""}">${esc(m.home_team)}</span>
         <span class="sc">${h} - ${a}</span>
         <span class="a ${a > h ? "win" : ""}">${esc(m.away_team)}</span>

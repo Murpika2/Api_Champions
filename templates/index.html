@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/features.css') }}">
 </head>
 <body>
   <div class="stars-bg" aria-hidden="true"></div>
@@ -25,6 +26,9 @@
       <a href="#clasificacion" class="nav-link active">Clasificación</a>
       <a href="#equipos" class="nav-link">Equipos</a>
       <a href="#partidos" class="nav-link">Partidos</a>
+      <a href="#goleadores" class="nav-link">Bota de Oro</a>
+      <a href="#calendario" class="nav-link">Calendario</a>
+      <a href="#simulador" class="nav-link">Simulador</a>
     </nav>
     <div class="auth-area">
       <button class="btn btn-ghost" id="loginBtn">
@@ -135,6 +139,67 @@
         </div>
       </div>
     </section>
+
+    <!-- ============ BOTA DE ORO ============ -->
+    <section class="panel" id="goleadores">
+      <div class="panel-head">
+        <h2><span class="bar gold"></span>Bota de Oro</h2>
+        <button class="btn btn-gold btn-sm" id="addPlayerBtn">+ Nuevo jugador</button>
+      </div>
+      <div class="scorers-layout">
+        <div class="podium" id="podium"></div>
+        <ol class="scorers-list" id="scorersList"></ol>
+      </div>
+    </section>
+
+    <!-- ============ CALENDARIO ============ -->
+    <section class="panel" id="calendario">
+      <div class="panel-head">
+        <h2><span class="bar"></span>Calendario</h2>
+        <button class="btn btn-primary btn-sm" id="genScheduleBtn">🗓 Generar calendario</button>
+      </div>
+      <div id="scheduleInfo" class="schedule-info">
+        <p class="muted">Genera automáticamente todos los cruces entre los equipos inscritos (todos contra todos).</p>
+      </div>
+      <div class="schedule-grid" id="scheduleGrid"></div>
+    </section>
+
+    <!-- ============ SIMULADOR ============ -->
+    <section class="panel" id="simulador">
+      <div class="panel-head">
+        <h2><span class="bar"></span>Simulador</h2>
+      </div>
+      <div class="sim-layout">
+        <!-- Eliminatoria ida y vuelta -->
+        <form class="sim-card" id="knockoutForm">
+          <p class="form-title">Eliminatoria · Ida y vuelta</p>
+          <div class="ko-picks">
+            <div class="side">
+              <div class="crest-slot" id="ko1Crest"></div>
+              <select id="ko1" required aria-label="Equipo 1"></select>
+            </div>
+            <span class="vs">VS</span>
+            <div class="side">
+              <div class="crest-slot" id="ko2Crest"></div>
+              <select id="ko2" required aria-label="Equipo 2"></select>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block" type="submit">⚡ Simular eliminatoria</button>
+          <div class="ko-result" id="koResult"></div>
+        </form>
+
+        <!-- Calculadora de clasificación -->
+        <form class="sim-card" id="qualForm">
+          <p class="form-title">Calculadora de clasificación</p>
+          <p class="muted small">Cuántos puntos necesita un equipo para asegurar la clasificación matemáticamente.</p>
+          <div class="qual-pick">
+            <select id="qualTeam" required aria-label="Equipo"></select>
+            <button class="btn btn-ghost" type="submit">Calcular</button>
+          </div>
+          <div class="qual-result" id="qualResult"></div>
+        </form>
+      </div>
+    </section>
   </main>
 
   <footer class="footer">
@@ -169,6 +234,18 @@
     </form>
   </div>
 
+  <div class="modal hidden" id="playerModal" role="dialog" aria-modal="true" aria-labelledby="playerTitle">
+    <form class="modal-card" id="playerForm">
+      <button type="button" class="modal-x" data-close>&times;</button>
+      <h3 id="playerTitle">Nuevo jugador</h3>
+      <label>Nombre del jugador<input name="name" required maxlength="60" placeholder="Ej. Vinícius Júnior"></label>
+      <label>Equipo<select name="team_id" id="playerTeam" required></select></label>
+      <label>Goles iniciales<input name="goals" type="number" min="0" max="99" value="0" required></label>
+      <p class="form-error" id="playerError"></p>
+      <button class="btn btn-gold btn-block" type="submit">Registrar jugador</button>
+    </form>
+  </div>
+
   <div class="modal hidden" id="detailModal" role="dialog" aria-modal="true">
     <div class="modal-card detail-card" id="detailCard">
       <button type="button" class="modal-x" data-close>&times;</button>
@@ -190,5 +267,6 @@
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/features.js') }}"></script>
 </body>
 </html>

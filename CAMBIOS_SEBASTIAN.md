@@ -45,6 +45,25 @@ Detalles extra:
   y colores generados para el resto. Banderas por país.
 - Notificaciones (toasts) de éxito y error, cierre de modales con `Esc`.
 
+## Segunda entrega: interfaces para las nuevas funcionalidades de la API
+
+Murpika agregó en `main` la gestión de jugadores y 5 funcionalidades especiales. Integré esos cambios en
+la branch `sebastian` (merge de `main`) y creé una pantalla para cada una:
+
+| Funcionalidad de la API | Endpoint | Interfaz |
+|---|---|---|
+| Registrar jugador | `POST /api/players` | Botón dorado "+ Nuevo jugador" (modal con nombre, equipo y goles) |
+| Bota de Oro (goleadores) | `GET /api/top-scorers` | Sección **Bota de Oro**: podio animado oro/plata/bronce + ranking completo |
+| Sumar goles a un jugador | `POST /api/top-scorers` | Botón "+1 ⚽" en cada goleador |
+| Generador de calendario | `POST /api/schedule/generate` | Sección **Calendario**: tarjetas de cada cruce; "Registrar resultado →" lleva el cruce al marcador de Partidos |
+| Simulador de eliminatoria ida y vuelta | `POST /api/knockout/simulate` | Sección **Simulador**: ida, vuelta, global y clasificado (con aviso si se decidió en penaltis) |
+| Calculadora de clasificación | `GET /api/teams/<id>/qualification-calculator` | Sección **Simulador** y dentro de la ficha de cada equipo: barra de progreso, puntos que faltan y estado (En carrera / Clasificado / Eliminado) |
+| Jornada del partido (`round`) | `GET /api/matches` | Etiqueta sobre cada resultado del historial |
+
+Archivos nuevos: `static/css/features.css` y `static/js/features.js` (se cargan después de los originales).
+Cambios menores en `templates/index.html` (menú con 6 secciones, nuevas secciones y modal de jugador)
+y en `static/js/app.js` (avisa a `features.js` al recargar datos, muestra la jornada y la calculadora en la ficha).
+
 ## Cómo ejecutarlo
 
 ```bash
