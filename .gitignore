@@ -1,3 +1,12 @@
+# Entornos virtuales
+.venv/
 venv/
+ENV/
+env/
+
+# Archivos de Python y caché
 __pycache__/
 *.pyc
+
+# Base de datos local (opcional: si quieres que cada uno tenga su propia BD limpia)
+# champions.db
