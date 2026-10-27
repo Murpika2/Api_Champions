@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Champions League · Panel</title>
+  <link rel="icon" href="{{ url_for('static', filename='img/logo.svg') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+  <div class="stars-bg" aria-hidden="true"></div>
+
+  <!-- ============ HEADER ============ -->
+  <header class="topbar">
+    <a class="brand" href="#clasificacion">
+      <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="brand-logo">
+      <span class="brand-text">
+        <span class="brand-top">UEFA</span>
+        <span class="brand-main">CHAMPIONS LEAGUE</span>
+      </span>
+    </a>
+    <nav class="nav" id="nav">
+      <a href="#clasificacion" class="nav-link active">Clasificación</a>
+      <a href="#equipos" class="nav-link">Equipos</a>
+      <a href="#partidos" class="nav-link">Partidos</a>
+    </nav>
+    <div class="auth-area">
+      <button class="btn btn-ghost" id="loginBtn">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.4 0-8 2.2-8 5v3h16v-3c0-2.8-3.6-5-8-5Z"/></svg>
+        Iniciar sesión
+      </button>
+      <div class="user-chip hidden" id="userChip">
+        <span class="dot"></span> admin
+        <button class="btn btn-mini" id="logoutBtn">Salir</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="hero-copy">
+        <p class="eyebrow">Temporada 2026 · Fase de liga</p>
+        <h1>El camino hacia<br><span class="shine">la gloria europea</span></h1>
+        <p class="hero-sub">Gestiona los clubes, registra resultados y sigue la clasificación en tiempo real.</p>
+      </div>
+      <div class="hero-trophy">
+        <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="Balón estrellado">
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="stat-num" id="statTeams">0</span><span class="stat-lbl">Equipos</span></div>
+      <div class="stat"><span class="stat-num" id="statMatches">0</span><span class="stat-lbl">Partidos jugados</span></div>
+      <div class="stat"><span class="stat-num" id="statGoals">0</span><span class="stat-lbl">Goles</span></div>
+      <div class="stat leader"><span class="stat-num" id="statLeader">—</span><span class="stat-lbl">Líder</span></div>
+    </div>
+  </section>
+
+  <main>
+    <!-- ============ CLASIFICACIÓN ============ -->
+    <section class="panel" id="clasificacion">
+      <div class="panel-head">
+        <h2><span class="bar"></span>Clasificación</h2>
+        <button class="btn btn-ghost btn-sm" id="refreshBtn">↻ Actualizar</button>
+      </div>
+      <div class="table-wrap">
+        <table class="standings">
+          <thead>
+            <tr>
+              <th class="c-pos">#</th><th class="c-team">Club</th>
+              <th title="Partidos jugados">PJ</th><th title="Ganados">G</th><th title="Empatados">E</th><th title="Perdidos">P</th>
+              <th title="Goles a favor" class="hide-sm">GF</th><th title="Goles en contra" class="hide-sm">GC</th>
+              <th title="Diferencia de goles">DG</th><th class="c-pts">PTS</th>
+            </tr>
+          </thead>
+          <tbody id="standingsBody"></tbody>
+        </table>
+      </div>
+      <div class="legend">
+        <span><i class="lg lg-r16"></i>1–8 · Octavos de final</span>
+        <span><i class="lg lg-po"></i>9–24 · Play-off</span>
+        <span><i class="lg lg-out"></i>25+ · Eliminado</span>
+      </div>
+    </section>
+
+    <!-- ============ EQUIPOS ============ -->
+    <section class="panel" id="equipos">
+      <div class="panel-head">
+        <h2><span class="bar"></span>Equipos</h2>
+        <div class="head-actions">
+          <form class="search" id="searchForm">
+            <input type="number" min="1" id="searchId" placeholder="Buscar por ID" aria-label="Buscar equipo por ID">
+            <button class="btn btn-ghost btn-sm" type="submit">Buscar</button>
+          </form>
+          <button class="btn btn-primary btn-sm" id="addTeamBtn">+ Nuevo equipo</button>
+        </div>
+      </div>
+      <div class="teams-grid" id="teamsGrid"></div>
+    </section>
+
+    <!-- ============ PARTIDOS ============ -->
+    <section class="panel" id="partidos">
+      <div class="panel-head">
+        <h2><span class="bar"></span>Partidos</h2>
+      </div>
+      <div class="matches-layout">
+        <form class="match-form" id="matchForm">
+          <p class="form-title">Registrar resultado</p>
+          <div class="scoreboard">
+            <div class="side">
+              <span class="side-lbl">Local</span>
+              <div class="crest-slot" id="homeCrest"></div>
+              <select id="homeTeam" required></select>
+            </div>
+            <div class="score-inputs">
+              <input type="number" id="homeGoals" min="0" max="99" value="0" required aria-label="Goles local">
+              <span class="vs">:</span>
+              <input type="number" id="awayGoals" min="0" max="99" value="0" required aria-label="Goles visitante">
+            </div>
+            <div class="side">
+              <span class="side-lbl">Visitante</span>
+              <div class="crest-slot" id="awayCrest"></div>
+              <select id="awayTeam" required></select>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block" type="submit">⚽ Registrar partido</button>
+          <p class="hint">Los puntos, goles y diferencia se calculan automáticamente.</p>
+        </form>
+
+        <div class="history">
+          <p class="form-title">Últimos resultados</p>
+          <ul class="match-list" id="matchList"></ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="footer-logo">
+    <p>API Champions · Interfaz por Sebastián</p>
+  </footer>
+
+  <!-- ============ MODALES ============ -->
+  <div class="modal hidden" id="loginModal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+    <form class="modal-card" id="loginForm">
+      <button type="button" class="modal-x" data-close>&times;</button>
+      <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="modal-logo">
+      <h3 id="loginTitle">Acceso administrador</h3>
+      <p class="muted">Inicia sesión para crear, editar y eliminar equipos o registrar partidos.</p>
+      <label>Usuario<input name="username" autocomplete="username" required></label>
+      <label>Contraseña<input name="password" type="password" autocomplete="current-password" required></label>
+      <p class="form-error" id="loginError"></p>
+      <button class="btn btn-primary btn-block" type="submit">Entrar</button>
+    </form>
+  </div>
+
+  <div class="modal hidden" id="teamModal" role="dialog" aria-modal="true" aria-labelledby="teamTitle">
+    <form class="modal-card" id="teamForm">
+      <button type="button" class="modal-x" data-close>&times;</button>
+      <h3 id="teamTitle">Nuevo equipo</h3>
+      <input type="hidden" name="id">
+      <label>Nombre del club<input name="name" required maxlength="60" placeholder="Ej. FC Barcelona"></label>
+      <label>País<input name="country" required maxlength="40" list="countries" placeholder="Ej. España"></label>
+      <datalist id="countries"></datalist>
+      <p class="form-error" id="teamError"></p>
+      <button class="btn btn-primary btn-block" type="submit">Guardar</button>
+    </form>
+  </div>
+
+  <div class="modal hidden" id="detailModal" role="dialog" aria-modal="true">
+    <div class="modal-card detail-card" id="detailCard">
+      <button type="button" class="modal-x" data-close>&times;</button>
+      <div id="detailContent"></div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="confirmModal" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h3>¿Eliminar equipo?</h3>
+      <p class="muted" id="confirmText"></p>
+      <div class="row-btns">
+        <button class="btn btn-ghost" data-close>Cancelar</button>
+        <button class="btn btn-danger" id="confirmYes">Eliminar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
