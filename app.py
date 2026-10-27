@@ -1,3 +1,4 @@
+import random
 import sqlite3
 from flask import Flask, jsonify, render_template, request
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required
@@ -19,7 +20,7 @@ def init_db():
   conn = get_db_connection()
   cursor = conn.cursor()
 
-  # Tabla de Equipos
+  # 1. Tabla de Equipos
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS teams (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,17 +37,29 @@ def init_db():
         )
     """)
 
-  # Tabla de Partidos
+  # 2. Tabla de Partidos
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS matches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             home_team TEXT NOT NULL,
             away_team TEXT NOT NULL,
-            score TEXT NOT NULL
+            score TEXT NOT NULL,
+            round TEXT DEFAULT 'Fase de Grupos'
         )
     """)
 
-  # Insertar datos por defecto si la tabla está vacía
+  # 3. Tabla de Jugadores / Goleadores (Bota de Oro)
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS players (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            team_id INTEGER NOT NULL,
+            goals INTEGER DEFAULT 0,
+            FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE
+        )
+    """)
+
+  # Insertar datos por defecto si la tabla de equipos está vacía
   cursor.execute("SELECT COUNT(*) FROM teams")
   if cursor.fetchone()[0] == 0:
     cursor.execute(
@@ -56,6 +69,33 @@ def init_db():
     cursor.execute(
         "INSERT INTO teams (name, country) VALUES (?, ?)",
         ("Manchester City", "Inglaterra"),
+    )
+    cursor.execute(
+        "INSERT INTO teams (name, country) VALUES (?, ?)",
+        ("FC Barcelona", "España"),
+    )
+    cursor.execute(
+        "INSERT INTO teams (name, country) VALUES (?, ?)",
+        ("Bayern München", "Alemania"),
+    )
+    conn.commit()
+
+    # Insertar algunos goleadores iniciales
+    cursor.execute(
+        "INSERT INTO players (name, team_id, goals) VALUES (?, ?, ?)",
+        ("Kylian Mbappé", 1, 5),
+    )
+    cursor.execute(
+        "INSERT INTO players (name, team_id, goals) VALUES (?, ?, ?)",
+        ("Erling Haaland", 2, 6),
+    )
+    cursor.execute(
+        "INSERT INTO players (name, team_id, goals) VALUES (?, ?, ?)",
+        ("Robert Lewandowski", 3, 4),
+    )
+    cursor.execute(
+        "INSERT INTO players (name, team_id, goals) VALUES (?, ?, ?)",
+        ("Harry Kane", 4, 5),
     )
     conn.commit()
 
@@ -188,7 +228,6 @@ def get_matches():
   return jsonify([dict(row) for row in matches]), 200
 
 
-
 @app.route("/api/matches", methods=["POST"])
 @jwt_required()
 def register_match():
@@ -265,17 +304,7 @@ def register_match():
           "UPDATE teams SET points = ?, pj = ?, pg = ?, pe = ?, pp = ?, gf ="
           " ?, gc = ?, dg = ? WHERE id = ?"
       ),
-      (
-          h_points,
-          h_pj,
-          h_pg,
-          h_pe,
-          h_pp,
-          h_gf,
-          h_gc,
-          h_dg,
-          local_id,
-      ),
+      (h_points, h_pj, h_pg, h_pe, h_pp, h_gf, h_gc, h_dg, local_id),
   )
 
   # Actualizar en BD (Visitante)
@@ -284,17 +313,7 @@ def register_match():
           "UPDATE teams SET points = ?, pj = ?, pg = ?, pe = ?, pp = ?, gf ="
           " ?, gc = ?, dg = ? WHERE id = ?"
       ),
-      (
-          a_points,
-          a_pj,
-          a_pg,
-          a_pe,
-          a_pp,
-          a_gf,
-          a_gc,
-          a_dg,
-          away_id,
-      ),
+      (a_points, a_pj, a_pg, a_pe, a_pp, a_gf, a_gc, a_dg, away_id),
   )
 
   conn.commit()
@@ -313,7 +332,52 @@ def register_match():
   )
 
 
-# --- 4. FUNCIONALIDAD ESPECIAL (TABLA DE POSICIONES) ---
+# --- 4. CRUD Y GESTIÓN DE JUGADORES (Bota de Oro) ---
+@app.route("/api/players", methods=["POST"])
+@jwt_required()
+def create_player():
+  data = request.get_json()
+  name = data.get("name")
+  team_id = data.get("team_id")
+  initial_goals = data.get("goals", 0)
+
+  if not name or not team_id:
+    return (
+        jsonify({"error": "Faltan datos obligatorios (name, team_id)"}),
+        400,
+    )
+
+  conn = get_db_connection()
+  team = conn.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
+  if not team:
+    conn.close()
+    return jsonify({"error": "El equipo especificado no existe"}), 404
+
+  cursor = conn.cursor()
+  cursor.execute(
+      "INSERT INTO players (name, team_id, goals) VALUES (?, ?, ?)",
+      (name, team_id, initial_goals),
+  )
+  conn.commit()
+  new_player_id = cursor.lastrowid
+  conn.close()
+
+  return (
+      jsonify({
+          "message": "Jugador registrado con éxito",
+          "player": {
+              "id": new_player_id,
+              "name": name,
+              "team_id": team_id,
+              "team_name": team["name"],
+              "goals": initial_goals,
+          },
+      }),
+      201,
+  )
+
+
+# --- 5. FUNCIONALIDAD ESPECIAL N° 1: TABLA DE POSICIONES DINÁMICA ---
 @app.route("/api/standings", methods=["GET"])
 def get_standings():
   conn = get_db_connection()
@@ -328,6 +392,202 @@ def get_standings():
           "status": "success",
           "total_matches_played": matches_count,
           "standings": [dict(row) for row in teams],
+      }),
+      200,
+  )
+
+
+# --- 6. FUNCIONALIDAD ESPECIAL N° 2: BOTA DE ORO (TABLA DE GOLEADORES) ---
+@app.route("/api/top-scorers", methods=["GET"])
+def get_top_scorers():
+  conn = get_db_connection()
+  query = """
+        SELECT p.id, p.name AS player_name, p.goals, t.name AS team_name, t.country
+        FROM players p
+        JOIN teams t ON p.team_id = t.id
+        ORDER BY p.goals DESC
+    """
+  scorers = conn.execute(query).fetchall()
+  conn.close()
+
+  return (
+      jsonify({
+          "status": "success",
+          "top_scorers": [dict(row) for row in scorers],
+      }),
+      200,
+  )
+
+
+@app.route("/api/top-scorers", methods=["POST"])
+@jwt_required()
+def add_player_goal():
+  data = request.get_json()
+  player_id = data.get("player_id")
+  goals_to_add = data.get("goals", 1)
+
+  if not player_id:
+    return jsonify({"error": "Se requiere player_id"}), 400
+
+  conn = get_db_connection()
+  player = conn.execute(
+      "SELECT * FROM players WHERE id = ?", (player_id,)
+  ).fetchone()
+  if not player:
+    conn.close()
+    return jsonify({"error": "Jugador no encontrado"}), 404
+
+  new_goals = player["goals"] + goals_to_add
+  conn.execute(
+      "UPDATE players SET goals = ? WHERE id = ?", (new_goals, player_id)
+  )
+  conn.commit()
+  conn.close()
+
+  return (
+      jsonify({
+          "message": f"Goles actualizados para {player['name']}",
+          "total_goals": new_goals,
+      }),
+      200,
+  )
+
+
+# --- 7. FUNCIONALIDAD ESPECIAL N° 3: GENERADOR AUTOMÁTICO DE FIXTURE (CALENDARIO) ---
+@app.route("/api/schedule/generate", methods=["POST"])
+@jwt_required()
+def generate_schedule():
+  conn = get_db_connection()
+  teams = conn.execute("SELECT id, name FROM teams").fetchall()
+  conn.close()
+
+  team_list = [dict(t) for t in teams]
+  if len(team_list) < 2:
+    return (
+        jsonify({
+            "error": "Se necesitan al menos 2 equipos para generar el calendario"
+        }),
+        400,
+    )
+
+  matches_schedule = []
+  for i in range(len(team_list)):
+    for j in range(i + 1, len(team_list)):
+      matches_schedule.append({
+          "home_team": team_list[i]["name"],
+          "away_team": team_list[j]["name"],
+          "status": "Programado",
+      })
+
+  return (
+      jsonify({
+          "message": (
+              f"Calendario generado exitosamente con {len(matches_schedule)}"
+              " encuentros"
+          ),
+          "total_rounds": len(team_list) - 1 if len(team_list) % 2 == 0 else len(team_list),
+          "schedule": matches_schedule,
+      }),
+      200,
+  )
+
+
+# --- 8. FUNCIONALIDAD ESPECIAL N° 4: SIMULADOR DE ELIMINATORIAS (IDA Y VUELTA) ---
+@app.route("/api/knockout/simulate", methods=["POST"])
+@jwt_required()
+def simulate_knockout():
+  data = request.get_json()
+  team1_id = data.get("team1_id")
+  team2_id = data.get("team2_id")
+
+  if not team1_id or not team2_id or team1_id == team2_id:
+    return (
+        jsonify({
+            "error": "Proporcione dos IDs de equipos válidos y diferentes"
+        }),
+        400,
+    )
+
+  conn = get_db_connection()
+  t1 = conn.execute("SELECT * FROM teams WHERE id = ?", (team1_id,)).fetchone()
+  t2 = conn.execute("SELECT * FROM teams WHERE id = ?", (team2_id,)).fetchone()
+  conn.close()
+
+  if not t1 or not t2:
+    return jsonify({"error": "Uno o ambos equipos no existen"}), 404
+
+  leg1_t1 = random.randint(0, 3)
+  leg1_t2 = random.randint(0, 3)
+
+  leg2_t2 = random.randint(0, 3)
+  leg2_t1 = random.randint(0, 3)
+
+  agg_t1 = leg1_t1 + leg2_t1
+  agg_t2 = leg1_t2 + leg2_t2
+
+  winner = None
+  penalties = False
+
+  if agg_t1 > agg_t2:
+    winner = t1["name"]
+  elif agg_t2 > agg_t1:
+    winner = t2["name"]
+  else:
+    penalties = True
+    winner = random.choice([t1["name"], t2["name"]])
+
+  return (
+      jsonify({
+          "match_summary": (
+              f"{t1['name']} vs {t2['name']} (Eliminatoria Directa)"
+          ),
+          "leg_1": f"{t1['name']} {leg1_t1} - {leg1_t2} {t2['name']}",
+          "leg_2": f"{t2['name']} {leg2_t2} - {leg2_t1} {t1['name']}",
+          "aggregate_score": f"{t1['name']} {agg_t1} - {agg_t2} {t2['name']}",
+          "penalties_needed": penalties,
+          "qualified_to_next_round": winner,
+      }),
+      200,
+  )
+
+
+# --- 9. FUNCIONALIDAD ESPECIAL N° 5: SIMULADOR DE PUNTOS MATEMÁTICOS PARA CLASIFICAR ---
+@app.route("/api/teams/<int:team_id>/qualification-calculator", methods=["GET"])
+def qualification_calculator(team_id):
+  conn = get_db_connection()
+  team = conn.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
+  total_teams = conn.execute("SELECT COUNT(*) FROM teams").fetchone()[0]
+  conn.close()
+
+  if not team:
+    return jsonify({"error": "Equipo no encontrado"}), 404
+
+  total_matches_in_group = (total_teams - 1) * 2
+  max_possible_points = total_matches_in_group * 3
+  threshold = int(max_possible_points * 0.55)
+
+  remaining_matches = total_matches_in_group - team["pj"]
+  remaining_points = remaining_matches * 3
+  current_points = team["points"]
+
+  points_needed = max(0, threshold - current_points)
+  is_mathematically_possible = (current_points + remaining_points) >= threshold
+
+  return (
+      jsonify({
+          "team": team["name"],
+          "current_points": current_points,
+          "matches_played": team["pj"],
+          "matches_remaining": remaining_matches,
+          "qualification_threshold_points": threshold,
+          "points_needed_to_qualify": points_needed,
+          "is_mathematically_eligible": is_mathematically_possible,
+          "status_message": (
+              f"{team['name']} necesita al menos {points_needed} puntos de los"
+              f" {remaining_points} restantes para asegurar la clasificación."
+              if is_mathematically_possible
+              else f"{team['name']} ha quedado eliminado matemáticamente."
+          ),
       }),
       200,
   )
