@@ -16,6 +16,8 @@ El proyecto usa **SQLite**, y el requisito NU02 exige que el archivo esté en un
 
 ## Opción recomendada: PythonAnywhere
 
+> ✅ **Desplegado en:** https://sebastianag.pythonanywhere.com (API en `/api`, salud en `/api/health`). Vence el 17 de diciembre de 2026 si no se renueva.
+
 ### 1. Crear la cuenta
 
 Regístrate en https://www.pythonanywhere.com con una cuenta *Beginner* (gratis). Tu dirección será `https://TUUSUARIO.pythonanywhere.com`.
@@ -33,7 +35,8 @@ git checkout entrega-final        # o la rama donde esté la entrega
 ### 3. Crear el entorno virtual e instalar dependencias
 
 ```bash
-mkvirtualenv --python=/usr/bin/python3.11 champions-venv
+/usr/bin/python3.13 -m venv ~/.virtualenvs/champions-venv
+source ~/.virtualenvs/champions-venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -70,8 +73,9 @@ flask --app app init-db
 ### 5. Crear la aplicación web
 
 1. Ve a **Web → Add a new web app → Next**.
-2. Elige **Manual configuration** (no "Flask") y **Python 3.11**.
-3. En **Virtualenv** escribe: `champions-venv`.
+2. Elige **Manual configuration** (no "Flask") y **Python 3.13**.
+3. En **Virtualenv** escribe: `/home/TUUSUARIO/.virtualenvs/champions-venv`.
+   (Nota: en PythonAnywhere el entorno creado con `mkvirtualenv` y Python 3.11 falló al instalar con pip; con Python 3.13 y `python -m venv` funciona.)
 4. En **Code → WSGI configuration file**, abre el archivo, **borra todo** y deja solo esto:
 
 ```python

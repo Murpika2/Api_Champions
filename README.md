@@ -187,6 +187,9 @@ El detalle de cada caso, con pasos, resultado esperado y resultado obtenido, est
 
 ## 8. Despliegue en la nube
 
+🌐 **Publicado en https://sebastianag.pythonanywhere.com** (HTTPS, SQLite en disco persistente).
+
+
 Guía paso a paso en **`docs/DESPLIEGUE.md`**. Recomendado: **PythonAnywhere**, que ofrece HTTPS y disco persistente para SQLite en el plan gratuito.
 
 ## 9. Cumplimiento de requisitos
