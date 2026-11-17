@@ -1,23 +1,29 @@
 /* =========================================================
-   API Champions · Frontend
-   Consume todos los endpoints de app.py:
-     POST   /api/auth/login
-     GET    /api/teams           GET /api/teams/<id>
-     POST   /api/teams           PUT /api/teams/<id>   DELETE /api/teams/<id>
-     GET    /api/matches         POST /api/matches
-     GET    /api/standings
+   API Champions · Frontend (HTML + CSS + JavaScript puro)
+   Consume la API real. La dirección base llega desde el servidor
+   (variable FRONTEND_API_BASE), no está escrita en el código.
    ========================================================= */
 
-const API = "/api";
+const API = (window.APP_CONFIG && window.APP_CONFIG.apiBase) || "/api";
 const TOKEN_KEY = "champions_token";
+const USER_KEY = "champions_user";
 const $ = (sel) => document.querySelector(sel);
 
 const state = {
-  token: localStorage.getItem(TOKEN_KEY),
-  teams: [],
+  token: null,
+  user: null,
+  teams: [], // equipos activos (para listas desplegables)
   standings: [],
   matches: [],
-  pendingAction: null, // acción a ejecutar tras iniciar sesión
+  spots: 0,
+  pendingAction: null, // acción a ejecutar después de iniciar sesión
+};
+
+/* ---------- Almacenamiento seguro (puede fallar en modo privado) ---------- */
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } },
+  del(k) { try { localStorage.removeItem(k); } catch { /* sin almacenamiento */ } },
 };
 
 /* ---------- Escudos y banderas ---------- */
@@ -51,13 +57,12 @@ const CLUB_COLORS = {
   "tottenham": ["#132257", "#ffffff"],
 };
 
-// Códigos ISO para las banderas (imágenes de flagcdn.com, se ven igual en todos los sistemas)
 const FLAGS = {
   "españa": "es", "inglaterra": "gb-eng", "alemania": "de", "italia": "it", "francia": "fr",
   "portugal": "pt", "países bajos": "nl", "holanda": "nl", "bélgica": "be", "escocia": "gb-sct",
   "turquía": "tr", "austria": "at", "suiza": "ch", "ucrania": "ua", "croacia": "hr",
   "serbia": "rs", "grecia": "gr", "dinamarca": "dk", "república checa": "cz", "chequia": "cz",
-  "eslovaquia": "sk", "noruega": "no", "suecia": "se", "polonia": "pl", "rusia": "ru",
+  "eslovaquia": "sk", "noruega": "no", "suecia": "se", "polonia": "pl", "colombia": "co",
 };
 
 function hashHue(str) {
@@ -83,9 +88,9 @@ function crest(name, big = false) {
     c1 = `hsl(${h} 70% 38%)`;
     c2 = `hsl(${(h + 40) % 360} 85% 55%)`;
   }
-  const dark = c1.toLowerCase() === "#ffffff";
-  const textStyle = dark ? "color:#050a33;text-shadow:none;" : "";
-  return `<span class="crest${big ? " lg-crest" : ""}" style="--c1:${c1};--c2:${c2};${textStyle}">${esc(initials(name))}</span>`;
+  const light = c1.toLowerCase() === "#ffffff";
+  const textStyle = light ? "color:#050a33;text-shadow:none;" : "";
+  return `<span class="crest${big ? " lg-crest" : ""}" style="--c1:${c1};--c2:${c2};${textStyle}" aria-hidden="true">${esc(initials(name))}</span>`;
 }
 
 function flag(country) {
@@ -93,87 +98,183 @@ function flag(country) {
   return code ? `<img class="flag" src="https://flagcdn.com/w40/${code}.png" alt="" loading="lazy">` : "🌍";
 }
 
+// Escapa el texto que viene de la API antes de insertarlo en el HTML (evita XSS)
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-/* ---------- Peticiones ---------- */
-async function api(path, { method = "GET", body, auth = false } = {}) {
-  const headers = {};
-  if (body) headers["Content-Type"] = "application/json";
-  if (auth && state.token) headers.Authorization = `Bearer ${state.token}`;
-  const res = await fetch(API + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && auth) {
-    // Token caducado o inválido (flask-jwt-extended devuelve {"msg": ...})
-    setToken(null);
-    throw Object.assign(new Error("Tu sesión expiró. Inicia sesión de nuevo."), { status: 401 });
-  }
-  if (!res.ok) throw Object.assign(new Error(data.error || data.msg || `Error ${res.status}`), { status: res.status });
-  return data;
+const signed = (n) => (n > 0 ? `+${n}` : `${n}`);
+
+/* ---------- Indicador de carga ---------- */
+let loadingCount = 0;
+function loading(on) {
+  loadingCount = Math.max(0, loadingCount + (on ? 1 : -1));
+  $("#loadingBar").classList.toggle("hidden", loadingCount === 0);
+  document.body.setAttribute("aria-busy", loadingCount > 0 ? "true" : "false");
 }
 
-/* ---------- Autenticación ---------- */
-function setToken(token) {
+// Deshabilita un botón mientras se ejecuta una acción asíncrona
+async function busy(btn, fn) {
+  if (!btn) return fn();
+  const label = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner" aria-hidden="true"></span> Procesando…`;
+  try {
+    return await fn();
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = label;
+  }
+}
+
+/* ---------- Peticiones a la API ---------- */
+class ApiError extends Error {
+  constructor(message, status, details) {
+    super(message);
+    this.status = status;
+    this.details = details;
+  }
+}
+
+async function api(path, { method = "GET", body, auth = false } = {}) {
+  const headers = { Accept: "application/json" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (auth && state.token) headers.Authorization = `Bearer ${state.token}`;
+
+  loading(true);
+  let res;
+  try {
+    res = await fetch(API + path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+  } catch {
+    throw new ApiError("No se pudo conectar con la API. Revisa tu conexión e intenta de nuevo.", 0);
+  } finally {
+    loading(false);
+  }
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message = (data && (data.error || data.msg)) || `Error ${res.status}`;
+    const err = new ApiError(message, res.status, data && data.details);
+    if (res.status === 401 && auth) sessionRejected(message);
+    throw err;
+  }
+  return data || {};
+}
+
+function errorText(err) {
+  const msgs = err.details ? Object.values(err.details).filter((v) => typeof v === "string") : [];
+  if (msgs.length) return `${err.message}: ${msgs.join(" · ")}`;
+  return err.message;
+}
+
+/* ---------- Sesión (UI01) ---------- */
+function setSession(token, user) {
   state.token = token;
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+  state.user = user;
+  if (token) {
+    store.set(TOKEN_KEY, token);
+    store.set(USER_KEY, JSON.stringify(user));
+  } else {
+    store.del(TOKEN_KEY);
+    store.del(USER_KEY);
+  }
   $("#loginBtn").classList.toggle("hidden", !!token);
   $("#userChip").classList.toggle("hidden", !token);
+  if (user) {
+    $("#userName").textContent = user.username;
+    $("#userRole").textContent = user.role === "admin" ? "admin" : "solo lectura";
+    $("#userRole").classList.toggle("viewer", user.role !== "admin");
+  }
 }
 
-// Ejecuta una acción protegida; si no hay sesión, abre el login primero
-function requireAuth(action) {
-  if (state.token) return action();
-  state.pendingAction = action;
+// La API rechazó el token: se cierra la sesión y se ofrece volver a entrar
+function sessionRejected(message) {
+  if (!state.token) return;
+  setSession(null, null);
+  toast(message, "err");
+  $("#loginMsg").textContent = message;
   openModal("#loginModal");
+}
+
+function requireAuth(action) {
+  if (!state.token) {
+    state.pendingAction = action;
+    $("#loginMsg").textContent = "Inicia sesión para continuar con esta acción.";
+    openModal("#loginModal");
+    return;
+  }
+  // Los permisos los decide el servidor: si el rol no alcanza, la API responde 403
+  // y la interfaz muestra ese rechazo.
+  return action();
 }
 
 $("#loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target;
   $("#loginError").textContent = "";
-  try {
-    const data = await api("/auth/login", {
-      method: "POST",
-      body: { username: f.username.value.trim(), password: f.password.value },
-    });
-    setToken(data.access_token);
-    closeModal("#loginModal");
-    f.reset();
-    toast("Sesión iniciada. ¡Bienvenido!", "ok");
-    const next = state.pendingAction;
-    state.pendingAction = null;
-    if (next) next();
-  } catch (err) {
-    $("#loginError").textContent = err.message;
-  }
+  await busy(f.querySelector("[type=submit]"), async () => {
+    try {
+      const res = await api("/auth/login", {
+        method: "POST",
+        body: { username: f.username.value.trim(), password: f.password.value },
+      });
+      setSession(res.data.access_token, res.data.user);
+      const next = state.pendingAction;
+      closeModal("#loginModal");
+      f.reset();
+      toast(`Bienvenido, ${res.data.user.username}`, "ok");
+      if (next) next();
+    } catch (err) {
+      $("#loginError").textContent = errorText(err);
+    }
+  });
 });
 
-$("#loginBtn").addEventListener("click", () => openModal("#loginModal"));
+$("#loginBtn").addEventListener("click", () => {
+  $("#loginMsg").textContent = "Inicia sesión para crear, editar y desactivar equipos o registrar partidos.";
+  openModal("#loginModal");
+});
 $("#logoutBtn").addEventListener("click", () => {
-  setToken(null);
+  setSession(null, null);
   toast("Sesión cerrada");
 });
+
+// Al cargar la página se comprueba con la API que el token guardado siga siendo válido
+async function restoreSession() {
+  const token = store.get(TOKEN_KEY);
+  if (!token) return setSession(null, null);
+  let user = null;
+  try { user = JSON.parse(store.get(USER_KEY)); } catch { /* ignorado */ }
+  state.token = token;
+  try {
+    const res = await api("/auth/me", { auth: true });
+    setSession(token, res.data);
+  } catch (err) {
+    if (err.status !== 401) setSession(token, user); // sin conexión: se mantiene hasta comprobarla
+  }
+}
 
 /* ---------- Carga de datos ---------- */
 async function loadAll() {
   try {
-    const [standings, teams, matches] = await Promise.all([api("/standings"), api("/teams"), api("/matches")]);
-    state.standings = standings.standings;
-    state.teams = teams;
-    state.matches = matches;
-    renderStats(standings.total_matches_played);
+    const [st, teams, matches] = await Promise.all([api("/standings"), api("/teams"), api("/matches")]);
+    state.standings = st.data;
+    state.spots = st.qualification_spots;
+    state.teams = teams.data;
+    state.matches = matches.data;
+    renderStats(st.total_matches_played);
     renderStandings();
-    renderTeams();
-    renderMatchSelects();
+    renderSelects();
     renderMatches();
   } catch (err) {
-    toast("No se pudo conectar con la API: " + err.message, "err");
+    toast(errorText(err), "err");
+    $("#standingsBody").innerHTML = `<tr><td colspan="11" class="empty">No se pudo cargar la clasificación. ${esc(err.message)}</td></tr>`;
   }
+  loadTeamsGrid();
+  loadScorers();
 }
 
-/* ---------- Render: estadísticas ---------- */
+/* ---------- Estadísticas ---------- */
 function animateNumber(el, to) {
   const from = parseInt(el.textContent, 10) || 0;
   const start = performance.now();
@@ -188,35 +289,38 @@ function animateNumber(el, to) {
 function renderStats(totalMatches) {
   animateNumber($("#statTeams"), state.teams.length);
   animateNumber($("#statMatches"), totalMatches);
-  animateNumber($("#statGoals"), state.teams.reduce((s, t) => s + t.gf, 0));
+  animateNumber($("#statGoals"), state.matches.reduce((s, m) => s + m.home_goals + m.away_goals, 0));
   const leader = state.standings[0];
   $("#statLeader").textContent = leader && leader.pj > 0 ? leader.name : "—";
 }
 
-/* ---------- Render: clasificación ---------- */
-function zone(pos) {
-  if (pos <= 8) return "z-r16";
-  if (pos <= 24) return "z-po";
-  return "z-out";
-}
+/* ---------- Clasificación ---------- */
+const STATUS = {
+  clasificado: ["b-ok", "✓", "Clasificado"],
+  eliminado: ["b-out", "✕", "Eliminado"],
+  en_disputa: ["b-mid", "…", "En disputa"],
+};
 
 function renderStandings() {
   const body = $("#standingsBody");
+  $("#legendSpots").textContent = state.spots ? `1–${state.spots} · Zona de clasificación` : "Zona de clasificación";
   if (!state.standings.length) {
-    body.innerHTML = `<tr><td colspan="10" class="empty">Aún no hay equipos registrados.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="11" class="empty">Aún no hay equipos activos.</td></tr>`;
     return;
   }
   body.innerHTML = state.standings
     .map((t, i) => {
       const dgClass = t.dg > 0 ? "dg-pos" : t.dg < 0 ? "dg-neg" : "";
-      return `<tr class="${zone(i + 1)}" data-id="${t.id}" style="animation-delay:${i * 40}ms">
-        <td><span class="pos">${i + 1}</span></td>
+      const [cls, icon, label] = STATUS[t.qualification_status] || ["", "", ""];
+      return `<tr class="${t.zone === "clasifica" ? "z-r16" : "z-out"}" data-id="${t.id}" tabindex="0" style="animation-delay:${i * 40}ms" aria-label="${esc(t.name)}, posición ${t.position}, ${t.points} puntos">
+        <td><span class="pos">${t.position}</span></td>
         <td class="c-team"><div class="team-cell">${crest(t.name)}
           <div><div class="name">${esc(t.name)}</div><div class="country">${flag(t.country)} ${esc(t.country)}</div></div></div></td>
         <td>${t.pj}</td><td>${t.pg}</td><td>${t.pe}</td><td>${t.pp}</td>
         <td class="hide-sm">${t.gf}</td><td class="hide-sm">${t.gc}</td>
-        <td class="${dgClass}">${t.dg > 0 ? "+" : ""}${t.dg}</td>
+        <td class="${dgClass}">${signed(t.dg)}</td>
         <td class="c-pts">${t.points}</td>
+        <td class="hide-sm">${label ? `<span class="badge ${cls}" title="${label}">${icon}</span>` : ""}</td>
       </tr>`;
     })
     .join("");
@@ -226,55 +330,111 @@ $("#standingsBody").addEventListener("click", (e) => {
   const row = e.target.closest("tr[data-id]");
   if (row) showTeamDetail(Number(row.dataset.id));
 });
-
-/* ---------- Render: equipos ---------- */
-function renderTeams(highlightId) {
-  const grid = $("#teamsGrid");
-  if (!state.teams.length) {
-    grid.innerHTML = `<p class="empty">No hay equipos. ¡Crea el primero!</p>`;
-    return;
+$("#standingsBody").addEventListener("keydown", (e) => {
+  const row = e.target.closest("tr[data-id]");
+  if (row && (e.key === "Enter" || e.key === " ")) {
+    e.preventDefault();
+    showTeamDetail(Number(row.dataset.id));
   }
-  grid.innerHTML = state.teams
-    .map(
-      (t, i) => `<article class="team-card${t.id === highlightId ? " highlight" : ""}" data-id="${t.id}" style="animation-delay:${i * 40}ms">
-        <span class="tc-id">ID ${t.id}</span>
-        <div class="tc-top">${crest(t.name)}
-          <div><div class="tc-name">${esc(t.name)}</div><div class="tc-country">${flag(t.country)} ${esc(t.country)}</div></div>
-        </div>
-        <div class="tc-stats">
-          <div><b>${t.points}</b><small>Pts</small></div>
-          <div><b>${t.pj}</b><small>PJ</small></div>
-          <div><b>${t.dg > 0 ? "+" : ""}${t.dg}</b><small>DG</small></div>
-        </div>
-        <div class="tc-actions">
-          <button class="btn btn-ghost" data-act="view">Ver</button>
-          <button class="btn btn-ghost" data-act="edit">Editar</button>
-          <button class="btn btn-ghost del" data-act="delete">Eliminar</button>
-        </div>
-      </article>`
-    )
-    .join("");
+});
+
+/* ---------- Equipos: listado y búsqueda (RF02 / UI02) ---------- */
+function currentFilters() {
+  return {
+    name: $("#searchName").value.trim(),
+    country: $("#searchCountry").value.trim(),
+    inactive: $("#searchInactive").checked,
+  };
 }
 
-$("#teamsGrid").addEventListener("click", (e) => {
+async function loadTeamsGrid(highlightId) {
+  const f = currentFilters();
+  const qs = new URLSearchParams();
+  if (f.name) qs.set("name", f.name);
+  if (f.country) qs.set("country", f.country);
+  if (f.inactive) qs.set("include_inactive", "true");
+  const grid = $("#teamsGrid");
+  try {
+    const res = await api(`/teams${qs.toString() ? "?" + qs : ""}`);
+    const filtering = f.name || f.country;
+    $("#teamsInfo").textContent = filtering ? `${res.count} equipo(s) encontrado(s)` : "";
+    if (!res.data.length) {
+      grid.innerHTML = `<p class="empty">${esc(res.message || "No hay equipos. ¡Crea el primero!")}</p>`;
+      return;
+    }
+    grid.innerHTML = res.data.map((t, i) => teamCard(t, i, highlightId)).join("");
+  } catch (err) {
+    grid.innerHTML = `<p class="empty">No se pudieron cargar los equipos. ${esc(errorText(err))}</p>`;
+  }
+}
+
+function teamCard(t, i, highlightId) {
+  const actions = t.active
+    ? `<button class="btn btn-ghost" data-act="view" type="button">Ver</button>
+       <button class="btn btn-ghost" data-act="edit" type="button">Editar</button>
+       <button class="btn btn-ghost del" data-act="deactivate" type="button">Desactivar</button>`
+    : `<button class="btn btn-ghost" data-act="view" type="button">Ver</button>
+       <button class="btn btn-ghost" data-act="activate" type="button">Reactivar</button>`;
+  return `<article class="team-card${t.id === highlightId ? " highlight" : ""}${t.active ? "" : " inactive"}" data-id="${t.id}" style="animation-delay:${i * 40}ms">
+    <span class="tc-id">ID ${t.id}${t.active ? "" : " · DESACTIVADO"}</span>
+    <div class="tc-top">${crest(t.name)}
+      <div><h3 class="tc-name">${esc(t.name)}</h3><div class="tc-country">${flag(t.country)} ${esc(t.country)}</div></div>
+    </div>
+    <div class="tc-stats">
+      <div><b>${t.points}</b><small>Pts</small></div>
+      <div><b>${t.pj}</b><small>PJ</small></div>
+      <div><b>${signed(t.dg)}</b><small>DG</small></div>
+    </div>
+    <div class="tc-actions">${actions}</div>
+  </article>`;
+}
+
+$("#teamsGrid").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
   const id = Number(btn.closest(".team-card").dataset.id);
-  const team = state.teams.find((t) => t.id === id);
-  if (btn.dataset.act === "view") showTeamDetail(id);
-  if (btn.dataset.act === "edit") requireAuth(() => openTeamForm(team));
-  if (btn.dataset.act === "delete") requireAuth(() => confirmDelete(team));
+  const name = btn.closest(".team-card").querySelector(".tc-name").textContent;
+  const act = btn.dataset.act;
+  if (act === "view") showTeamDetail(id);
+  if (act === "edit") requireAuth(() => openTeamForm(id));
+  if (act === "deactivate") requireAuth(() => confirmDeactivate(id, name));
+  if (act === "activate") {
+    requireAuth(() =>
+      busy(btn, async () => {
+        try {
+          const res = await api(`/teams/${id}/activate`, { method: "PATCH", auth: true });
+          toast(res.message, "ok");
+          loadAll();
+        } catch (err) {
+          toast(errorText(err), "err");
+        }
+      })
+    );
+  }
 });
 
-// GET /api/teams/<id>
+$("#searchForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  loadTeamsGrid();
+});
+$("#clearSearch").addEventListener("click", () => {
+  $("#searchForm").reset();
+  loadTeamsGrid();
+});
+$("#searchInactive").addEventListener("change", () => loadTeamsGrid());
+
+// Ficha del equipo: GET /api/teams/<id>
 async function showTeamDetail(id) {
   try {
-    const t = await api(`/teams/${id}`);
-    const pos = state.standings.findIndex((s) => s.id === t.id) + 1;
+    const { data: t } = await api(`/teams/${id}`);
+    const row = state.standings.find((s) => s.id === t.id);
+    const players = t.players.length
+      ? `<ul class="mini-list">${t.players.map((p) => `<li><span>${esc(p.name)}</span><b>${p.goals} ⚽</b></li>`).join("")}</ul>`
+      : `<p class="muted">Sin jugadores registrados.</p>`;
     $("#detailContent").innerHTML = `
       ${crest(t.name, true)}
       <h3>${esc(t.name)}</h3>
-      <p class="muted">${flag(t.country)} ${esc(t.country)} · ID ${t.id}${pos ? ` · Posición ${pos}º` : ""}</p>
+      <p class="muted">${flag(t.country)} ${esc(t.country)} · ID ${t.id}${row ? ` · Posición ${row.position}º` : ""}${t.active ? "" : " · <b>Desactivado</b>"}</p>
       <div class="detail-grid">
         <div class="pts"><b>${t.points}</b><small>PTS</small></div>
         <div><b>${t.pj}</b><small>PJ</small></div>
@@ -283,33 +443,34 @@ async function showTeamDetail(id) {
         <div><b>${t.pp}</b><small>P</small></div>
         <div><b>${t.gf}</b><small>GF</small></div>
         <div><b>${t.gc}</b><small>GC</small></div>
-        <div><b>${t.dg > 0 ? "+" : ""}${t.dg}</b><small>DG</small></div>
-      </div>`;
+        <div><b>${signed(t.dg)}</b><small>DG</small></div>
+      </div>
+      <p class="form-title" style="margin:8px 0 0">Jugadores</p>
+      ${players}`;
     openModal("#detailModal");
   } catch (err) {
-    toast(err.message, "err");
+    toast(errorText(err), "err");
   }
 }
 
-$("#searchForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const id = Number($("#searchId").value);
-  if (!id) return;
-  await showTeamDetail(id);
-  renderTeams(id);
-});
-
 /* ---------- Crear / editar ---------- */
-function openTeamForm(team) {
+async function openTeamForm(id) {
   const f = $("#teamForm");
   f.reset();
   $("#teamError").textContent = "";
+  let team = null;
+  if (id) {
+    try {
+      team = (await api(`/teams/${id}`)).data;
+    } catch (err) {
+      return toast(errorText(err), "err");
+    }
+  }
   $("#teamTitle").textContent = team ? "Editar equipo" : "Nuevo equipo";
   f.id.value = team ? team.id : "";
   f.name.value = team ? team.name : "";
   f.country.value = team ? team.country : "";
   openModal("#teamModal");
-  f.name.focus();
 }
 
 $("#addTeamBtn").addEventListener("click", () => requireAuth(() => openTeamForm()));
@@ -319,54 +480,77 @@ $("#teamForm").addEventListener("submit", async (e) => {
   const f = e.target;
   const body = { name: f.name.value.trim(), country: f.country.value.trim() };
   const id = f.id.value;
-  try {
-    if (id) {
-      await api(`/teams/${id}`, { method: "PUT", body, auth: true });
-      toast(`${body.name} actualizado`, "ok");
-    } else {
-      await api("/teams", { method: "POST", body, auth: true });
-      toast(`${body.name} se une a la competición`, "ok");
-    }
-    closeModal("#teamModal");
-    loadAll();
-  } catch (err) {
-    if (err.status === 401) {
-      closeModal("#teamModal");
-      toast(err.message, "err");
-      requireAuth(() => openTeamForm(id ? state.teams.find((t) => t.id === Number(id)) : undefined));
-    } else {
-      $("#teamError").textContent = err.message;
-    }
+  $("#teamError").textContent = "";
+  if (!body.name || !body.country) {
+    $("#teamError").textContent = "Completa el nombre y el país.";
+    return;
   }
+  await busy(f.querySelector("[type=submit]"), async () => {
+    try {
+      const res = id
+        ? await api(`/teams/${id}`, { method: "PUT", body, auth: true })
+        : await api("/teams", { method: "POST", body, auth: true });
+      toast(res.message, "ok");
+      closeModal("#teamModal");
+      await loadAll();
+      loadTeamsGrid(res.data.id);
+    } catch (err) {
+      if (err.status === 401) closeModal("#teamModal");
+      else $("#teamError").textContent = errorText(err);
+    }
+  });
 });
 
-/* ---------- Eliminar ---------- */
-function confirmDelete(team) {
-  $("#confirmText").innerHTML = `Se eliminará <b>${esc(team.name)}</b> de la competición. Esta acción no se puede deshacer.`;
-  $("#confirmYes").onclick = async () => {
-    try {
-      await api(`/teams/${team.id}`, { method: "DELETE", auth: true });
-      toast(`${team.name} eliminado`, "ok");
-      closeModal("#confirmModal");
-      loadAll();
-    } catch (err) {
-      closeModal("#confirmModal");
-      toast(err.message, "err");
-    }
-  };
+/* ---------- Confirmaciones de acciones destructivas ---------- */
+function confirmAction({ title, html, yes, onYes }) {
+  $("#confirmTitle").textContent = title;
+  $("#confirmText").innerHTML = html;
+  const btn = $("#confirmYes");
+  btn.textContent = yes;
+  btn.onclick = () =>
+    busy(btn, async () => {
+      try {
+        await onYes();
+        closeModal("#confirmModal");
+      } catch (err) {
+        closeModal("#confirmModal");
+        if (err.status !== 401) toast(errorText(err), "err");
+      }
+    });
   openModal("#confirmModal");
 }
 
-/* ---------- Partidos ---------- */
-function renderMatchSelects() {
-  const opts = state.teams.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
-  for (const [sel, idx] of [["#homeTeam", 0], ["#awayTeam", 1]]) {
-    const el = $(sel);
-    const prev = el.value;
-    el.innerHTML = opts;
-    if (state.teams.some((t) => String(t.id) === prev)) el.value = prev;
-    else if (state.teams[idx]) el.value = state.teams[idx].id;
-  }
+function confirmDeactivate(id, name) {
+  confirmAction({
+    title: "¿Desactivar equipo?",
+    html: `<b>${esc(name)}</b> dejará de aparecer en la tabla y no podrá jugar más partidos. Sus resultados anteriores se conservan y podrás reactivarlo después.`,
+    yes: "Desactivar",
+    onYes: async () => {
+      const res = await api(`/teams/${id}`, { method: "DELETE", auth: true });
+      toast(res.message, "ok");
+      loadAll();
+    },
+  });
+}
+
+/* ---------- Listas desplegables ---------- */
+function fillSelect(sel, keep, fallbackIndex = 0) {
+  const el = $(sel);
+  const prev = el.value;
+  el.innerHTML = state.teams.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  if (state.teams.some((t) => String(t.id) === prev) && keep) el.value = prev;
+  else if (state.teams[fallbackIndex]) el.value = state.teams[fallbackIndex].id;
+}
+
+function renderSelects() {
+  const sorted = [...state.teams].sort((a, b) => a.name.localeCompare(b.name));
+  state.teams = sorted;
+  fillSelect("#homeTeam", true, 0);
+  fillSelect("#awayTeam", true, 1);
+  fillSelect("#calcTeam", true, 0);
+  fillSelect("#playerTeam", true, 0);
+  fillSelect("#koTeam1", true, 0);
+  fillSelect("#koTeam2", true, 1);
   updateCrests();
 }
 
@@ -379,6 +563,7 @@ function updateCrests() {
 $("#homeTeam").addEventListener("change", updateCrests);
 $("#awayTeam").addEventListener("change", updateCrests);
 
+/* ---------- Partidos ---------- */
 function renderMatches() {
   const list = $("#matchList");
   if (!state.matches.length) {
@@ -387,18 +572,38 @@ function renderMatches() {
   }
   list.innerHTML = state.matches
     .map((m, i) => {
-      const [h, a] = m.score.split("-").map((n) => parseInt(n, 10));
+      const h = m.home_goals, a = m.away_goals;
       return `<li class="match-item" style="animation-delay:${i * 30}ms">
         <span class="h ${h > a ? "win" : ""}">${esc(m.home_team)}</span>
         <span class="sc">${h} - ${a}</span>
         <span class="a ${a > h ? "win" : ""}">${esc(m.away_team)}</span>
+        <button class="btn-icon" type="button" data-match="${m.id}" title="Anular partido" aria-label="Anular ${esc(m.home_team)} ${h} - ${a} ${esc(m.away_team)}">✕</button>
       </li>`;
     })
     .join("");
 }
 
+$("#matchList").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-match]");
+  if (!btn) return;
+  const m = state.matches.find((x) => x.id === Number(btn.dataset.match));
+  requireAuth(() =>
+    confirmAction({
+      title: "¿Anular partido?",
+      html: `Se eliminará <b>${esc(m.home_team)} ${m.score} ${esc(m.away_team)}</b> y la tabla se recalculará.`,
+      yes: "Anular",
+      onYes: async () => {
+        const res = await api(`/matches/${m.id}`, { method: "DELETE", auth: true });
+        toast(res.message, "ok");
+        loadAll();
+      },
+    })
+  );
+});
+
 $("#matchForm").addEventListener("submit", (e) => {
   e.preventDefault();
+  $("#matchError").textContent = "";
   const body = {
     home_team_id: Number($("#homeTeam").value),
     away_team_id: Number($("#awayTeam").value),
@@ -406,52 +611,305 @@ $("#matchForm").addEventListener("submit", (e) => {
     away_goals: Number($("#awayGoals").value),
   };
   if (body.home_team_id === body.away_team_id) {
-    toast("Un equipo no puede jugar contra sí mismo", "err");
+    $("#matchError").textContent = "Un equipo no puede jugar contra sí mismo.";
     return;
   }
-  requireAuth(async () => {
+  if (![body.home_goals, body.away_goals].every((g) => Number.isInteger(g) && g >= 0 && g <= 99)) {
+    $("#matchError").textContent = "Los goles deben ser números enteros entre 0 y 99.";
+    return;
+  }
+  requireAuth(() =>
+    busy(e.target.querySelector("[type=submit]"), async () => {
+      try {
+        const res = await api("/matches", { method: "POST", body, auth: true });
+        const m = res.data.match;
+        toast(`${m.home_team} ${m.score} ${m.away_team}`, "ok");
+        $("#homeGoals").value = 0;
+        $("#awayGoals").value = 0;
+        showEffects(res.data.effects);
+        loadAll();
+      } catch (err) {
+        if (err.status !== 401) $("#matchError").textContent = errorText(err);
+      }
+    })
+  );
+});
+
+function showEffects(effects) {
+  const box = $("#matchEffects");
+  box.innerHTML = `<p class="form-title">Efecto en la tabla</p>` +
+    effects
+      .map((ef) => {
+        const diff = ef.position_before - ef.position_after;
+        const arrow = diff > 0 ? `<span class="up">▲ ${diff}</span>` : diff < 0 ? `<span class="down">▼ ${-diff}</span>` : `<span>＝</span>`;
+        return `<div class="effect-row"><span>${esc(ef.team)}</span><span>${ef.position_before}º → <b>${ef.position_after}º</b> ${arrow}</span><b>${ef.points} pts</b></div>`;
+      })
+      .join("");
+  box.classList.remove("hidden");
+}
+
+/* ---------- Funciones especiales: pestañas ---------- */
+const tabs = [...document.querySelectorAll(".tab")];
+function selectTab(tab) {
+  tabs.forEach((t) => {
+    const on = t === tab;
+    t.classList.toggle("active", on);
+    t.setAttribute("aria-selected", on);
+    t.tabIndex = on ? 0 : -1;
+    $("#" + t.getAttribute("aria-controls")).classList.toggle("hidden", !on);
+  });
+}
+tabs.forEach((t, i) => {
+  t.addEventListener("click", () => selectTab(t));
+  t.addEventListener("keydown", (e) => {
+    const dir = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (!dir) return;
+    const next = tabs[(i + dir + tabs.length) % tabs.length];
+    selectTab(next);
+    next.focus();
+  });
+});
+
+/* 1. Calculadora de clasificación */
+$("#calcForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const id = $("#calcTeam").value;
+  const spots = $("#calcSpots").value.trim();
+  const out = $("#calcResult");
+  await busy(e.target.querySelector("[type=submit]"), async () => {
     try {
-      const data = await api("/matches", { method: "POST", body, auth: true });
-      toast(`${data.match.home} ${data.match.score} ${data.match.away}`, "ok");
-      $("#homeGoals").value = 0;
-      $("#awayGoals").value = 0;
-      loadAll();
+      const { data: q } = await api(`/teams/${id}/qualification${spots ? `?spots=${encodeURIComponent(spots)}` : ""}`);
+      const [cls, icon, label] = STATUS[q.status];
+      out.innerHTML = `<div class="result-card ${cls}">
+        <div class="rc-head"><span class="badge ${cls}">${icon}</span><div><h3>${esc(q.team)}</h3><p class="muted">${label} · posición ${q.position}º de la tabla</p></div></div>
+        <div class="detail-grid">
+          <div class="pts"><b>${q.current_points}</b><small>PTS</small></div>
+          <div><b>${q.matches_played}</b><small>PJ</small></div>
+          <div><b>${q.matches_remaining}</b><small>RESTANTES</small></div>
+          <div><b>${q.max_possible_points}</b><small>MÁXIMO</small></div>
+        </div>
+        <p>${esc(q.message)}</p>
+        <p class="muted">Cupos considerados: ${q.qualification_spots}${q.wins_needed_to_secure ? ` · Victorias para asegurar: <b>${q.wins_needed_to_secure}</b> (${q.points_needed_to_secure} pts)` : ""}</p>
+      </div>`;
     } catch (err) {
-      toast(err.message, "err");
+      out.innerHTML = `<p class="form-error">${esc(errorText(err))}</p>`;
     }
   });
 });
 
-/* ---------- Modales y toasts ---------- */
+/* 2. Bota de Oro */
+async function loadScorers() {
+  const body = $("#scorersBody");
+  try {
+    const res = await api("/top-scorers?limit=20");
+    if (!res.data.length) {
+      body.innerHTML = `<tr><td colspan="5" class="empty">No hay goleadores registrados.</td></tr>`;
+      return;
+    }
+    body.innerHTML = res.data
+      .map(
+        (p) => `<tr data-player="${p.id}">
+          <td><span class="pos">${p.rank}</span></td>
+          <td class="c-team"><div class="team-cell">${crest(p.team_name)}<div><div class="name">${esc(p.name)}</div><div class="country show-sm">${esc(p.team_name)}</div></div></div></td>
+          <td class="c-team hide-sm">${esc(p.team_name)}</td>
+          <td class="c-pts">${p.goals}</td>
+          <td><div class="row-actions">
+            <button class="btn-icon" type="button" data-goal="1" aria-label="Sumar un gol a ${esc(p.name)}">+1</button>
+            <button class="btn-icon" type="button" data-goal="-1" aria-label="Restar un gol a ${esc(p.name)}">−1</button>
+            <button class="btn-icon danger" type="button" data-del aria-label="Eliminar a ${esc(p.name)}">✕</button>
+          </div></td>
+        </tr>`
+      )
+      .join("");
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="5" class="empty">${esc(errorText(err))}</td></tr>`;
+  }
+}
+
+$("#scorersBody").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  const row = btn.closest("tr[data-player]");
+  const id = row.dataset.player;
+  const name = row.querySelector(".name").textContent;
+  if (btn.dataset.goal) {
+    requireAuth(() =>
+      busy(btn, async () => {
+        try {
+          const res = await api(`/players/${id}/goals`, { method: "PATCH", body: { goals: Number(btn.dataset.goal) }, auth: true });
+          toast(res.message, "ok");
+          loadScorers();
+        } catch (err) {
+          if (err.status !== 401) toast(errorText(err), "err");
+        }
+      })
+    );
+  }
+  if ("del" in btn.dataset) {
+    requireAuth(() =>
+      confirmAction({
+        title: "¿Eliminar jugador?",
+        html: `Se eliminará a <b>${esc(name)}</b> de la Bota de Oro.`,
+        yes: "Eliminar",
+        onYes: async () => {
+          const res = await api(`/players/${id}`, { method: "DELETE", auth: true });
+          toast(res.message, "ok");
+          loadScorers();
+        },
+      })
+    );
+  }
+});
+
+$("#playerForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  $("#playerError").textContent = "";
+  const body = {
+    name: $("#playerName").value.trim(),
+    team_id: Number($("#playerTeam").value),
+    goals: Number($("#playerGoals").value || 0),
+  };
+  if (!body.name) {
+    $("#playerError").textContent = "Escribe el nombre del jugador.";
+    return;
+  }
+  requireAuth(() =>
+    busy(e.target.querySelector("[type=submit]"), async () => {
+      try {
+        const res = await api("/players", { method: "POST", body, auth: true });
+        toast(res.message, "ok");
+        $("#playerName").value = "";
+        $("#playerGoals").value = 0;
+        loadScorers();
+      } catch (err) {
+        if (err.status !== 401) $("#playerError").textContent = errorText(err);
+      }
+    })
+  );
+});
+
+/* 3. Calendario */
+$("#fixtureForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const out = $("#fixtureResult");
+  const qs = new URLSearchParams({ double_round: $("#fxDouble").checked, only_pending: $("#fxPending").checked });
+  await busy(e.target.querySelector("[type=submit]"), async () => {
+    try {
+      const res = await api(`/schedule?${qs}`);
+      if (!res.data.length) {
+        out.innerHTML = `<p class="empty">${esc(res.message)}</p>`;
+        return;
+      }
+      out.innerHTML = `<p class="result-info">${esc(res.message)}</p><div class="rounds">` +
+        res.data
+          .map(
+            (r) => `<div class="round"><p class="form-title">Jornada ${r.round}</p><ul>` +
+              r.matches
+                .map(
+                  (m) => `<li class="fx ${m.status}"><span>${esc(m.home_team)}</span><small>vs</small><span>${esc(m.away_team)}</span>
+                  ${m.status === "pendiente"
+                    ? `<button class="btn-icon wide" type="button" data-home="${m.home_team_id}" data-away="${m.away_team_id}">Registrar</button>`
+                    : `<em>Jugado</em>`}</li>`
+                )
+                .join("") +
+              `</ul></div>`
+          )
+          .join("") +
+        `</div>`;
+    } catch (err) {
+      out.innerHTML = `<p class="form-error">${esc(errorText(err))}</p>`;
+    }
+  });
+});
+
+// "Registrar" desde el calendario: prepara el formulario de partido
+$("#fixtureResult").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-home]");
+  if (!btn) return;
+  $("#homeTeam").value = btn.dataset.home;
+  $("#awayTeam").value = btn.dataset.away;
+  updateCrests();
+  $("#partidos").scrollIntoView({ behavior: "smooth" });
+  setTimeout(() => $("#homeGoals").focus(), 400);
+});
+
+/* 4. Simulador de eliminatoria */
+$("#koForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  $("#koError").textContent = "";
+  const body = { team1_id: Number($("#koTeam1").value), team2_id: Number($("#koTeam2").value) };
+  const seed = $("#koSeed").value.trim();
+  if (seed !== "") body.seed = Number(seed);
+  if (body.team1_id === body.team2_id) {
+    $("#koError").textContent = "Elige dos equipos diferentes.";
+    return;
+  }
+  requireAuth(
+    () =>
+      busy(e.target.querySelector("[type=submit]"), async () => {
+        try {
+          const { data: r } = await api("/knockout/simulate", { method: "POST", body, auth: true });
+          const pen = r.penalties ? `<p class="muted">Global empatado · penales ${r.penalties.team1} - ${r.penalties.team2}</p>` : "";
+          $("#koResult").innerHTML = `<div class="result-card b-ok">
+            <div class="ko-legs">
+              <div><small>IDA</small><p>${esc(r.leg_1.home)} <b>${r.leg_1.home_goals} - ${r.leg_1.away_goals}</b> ${esc(r.leg_1.away)}</p></div>
+              <div><small>VUELTA</small><p>${esc(r.leg_2.home)} <b>${r.leg_2.home_goals} - ${r.leg_2.away_goals}</b> ${esc(r.leg_2.away)}</p></div>
+            </div>
+            <p class="ko-agg">Global: ${esc(r.team1.name)} <b>${r.aggregate.team1} - ${r.aggregate.team2}</b> ${esc(r.team2.name)}</p>
+            ${pen}
+            <div class="ko-winner">${crest(r.winner.name, true)}<div><small>CLASIFICA</small><h3>${esc(r.winner.name)}</h3></div></div>
+            <p class="muted">Goles esperados por partido: ${esc(r.team1.name)} ${r.team1.expected_goals_per_match} · ${esc(r.team2.name)} ${r.team2.expected_goals_per_match}${r.seed != null ? ` · semilla ${r.seed}` : ""}</p>
+          </div>`;
+        } catch (err) {
+          if (err.status !== 401) $("#koError").textContent = errorText(err);
+        }
+      })
+  );
+});
+
+/* ---------- Modales y notificaciones ---------- */
+let lastFocus = null;
 function openModal(sel) {
+  lastFocus = document.activeElement;
   $(sel).classList.remove("hidden");
-  const first = $(sel).querySelector("input:not([type=hidden])");
+  const first = $(sel).querySelector("input:not([type=hidden]), button:not(.modal-x)");
   if (first) setTimeout(() => first.focus(), 50);
 }
 function closeModal(sel) {
   $(sel).classList.add("hidden");
+  if (sel === "#loginModal") state.pendingAction = null;
+  if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
 }
 document.addEventListener("click", (e) => {
   if (e.target.matches("[data-close]") || e.target.classList.contains("modal")) {
-    const modal = e.target.closest(".modal");
-    modal.classList.add("hidden");
-    if (modal.id === "loginModal") state.pendingAction = null;
+    closeModal("#" + e.target.closest(".modal").id);
   }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") document.querySelectorAll(".modal:not(.hidden)").forEach((m) => m.classList.add("hidden"));
+  if (e.key === "Escape") document.querySelectorAll(".modal:not(.hidden)").forEach((m) => closeModal("#" + m.id));
+  // Mantiene el foco dentro del modal abierto
+  if (e.key === "Tab") {
+    const modal = document.querySelector(".modal:not(.hidden)");
+    if (!modal) return;
+    const items = [...modal.querySelectorAll("button, input:not([type=hidden]), select")].filter((x) => !x.disabled);
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
 });
 
 function toast(msg, type = "") {
   const el = document.createElement("div");
   el.className = `toast ${type}`;
+  el.setAttribute("role", type === "err" ? "alert" : "status");
   el.textContent = msg;
   $("#toasts").appendChild(el);
-  setTimeout(() => el.remove(), 3800);
+  setTimeout(() => el.remove(), 4200);
 }
 
 /* ---------- Navegación activa ---------- */
-const sections = ["clasificacion", "equipos", "partidos"].map((id) => document.getElementById(id));
+const sections = ["clasificacion", "equipos", "partidos", "especiales"].map((id) => document.getElementById(id));
 const observer = new IntersectionObserver(
   (entries) => {
     entries.forEach((en) => {
@@ -468,7 +926,6 @@ $("#countries").innerHTML = Object.keys(FLAGS)
   .map((c) => `<option value="${c.charAt(0).toUpperCase() + c.slice(1)}">`)
   .join("");
 
-$("#refreshBtn").addEventListener("click", loadAll);
+$("#refreshBtn").addEventListener("click", (e) => busy(e.currentTarget, loadAll));
 
-setToken(state.token);
-loadAll();
+restoreSession().then(loadAll);

@@ -1,597 +1,659 @@
-import random
+"""API Champions: gestión de un torneo de fútbol tipo liga + eliminatorias.
+
+Ejecutar en desarrollo:  python app.py
+Ejecutar en producción:  gunicorn wsgi:app
+"""
+import logging
+import os
 import sqlite3
-from flask import Flask, jsonify, render_template, request
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required
+from functools import wraps
 
-app = Flask(__name__)
+import click
+from flask import Blueprint, Flask, current_app, jsonify, render_template
+from flask_cors import CORS
+from flask_jwt_extended import (
+    JWTManager,
+    create_access_token,
+    current_user,
+    jwt_required,
+    verify_jwt_in_request,
+)
+from werkzeug.exceptions import HTTPException
+from werkzeug.security import check_password_hash
 
-app.config["JWT_SECRET_KEY"] = "champions-secret-key-2026"
-jwt = JWTManager(app)
+import services
+from config import load_config
+from database import close_db, connect, create_user, get_db, init_db
+from validators import ApiError, Validator, json_body, query_bool, query_int, query_text
 
-
-# --- CONFIGURACIÓN DE LA BASE DE DATOS SQLITE ---
-def get_db_connection():
-  conn = sqlite3.connect("champions.db")
-  conn.row_factory = sqlite3.Row  # Permite acceder a las columnas por nombre
-  return conn
-
-
-def init_db():
-  conn = get_db_connection()
-  cursor = conn.cursor()
-
-  # 1. Tabla de Equipos
-  cursor.execute("""
-        CREATE TABLE IF NOT EXISTS teams (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            country TEXT NOT NULL,
-            points INTEGER DEFAULT 0,
-            pj INTEGER DEFAULT 0,
-            pg INTEGER DEFAULT 0,
-            pe INTEGER DEFAULT 0,
-            pp INTEGER DEFAULT 0,
-            gf INTEGER DEFAULT 0,
-            gc INTEGER DEFAULT 0,
-            dg INTEGER DEFAULT 0
-        )
-    """)
-
-  # 2. Tabla de Partidos
-  cursor.execute("""
-        CREATE TABLE IF NOT EXISTS matches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            home_team TEXT NOT NULL,
-            away_team TEXT NOT NULL,
-            score TEXT NOT NULL,
-            round TEXT DEFAULT 'Fase de Grupos'
-        )
-    """)
-
-  # 3. Tabla de Jugadores / Goleadores (Bota de Oro)
-  cursor.execute("""
-        CREATE TABLE IF NOT EXISTS players (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            team_id INTEGER NOT NULL,
-            goals INTEGER DEFAULT 0,
-            FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE
-        )
-    """)
-
-  # Insertar datos por defecto si la tabla de equipos está vacía
-  cursor.execute("SELECT COUNT(*) FROM teams")
-  if cursor.fetchone()[0] == 0:
-    cursor.execute(
-        "INSERT INTO teams (name, country) VALUES (?, ?)",
-        ("Real Madrid", "España"),
-    )
-    cursor.execute(
-        "INSERT INTO teams (name, country) VALUES (?, ?)",
-        ("Manchester City", "Inglaterra"),
-    )
-    cursor.execute(
-        "INSERT INTO teams (name, country) VALUES (?, ?)",
-        ("FC Barcelona", "España"),
-    )
-    cursor.execute(
-        "INSERT INTO teams (name, country) VALUES (?, ?)",
-        ("Bayern München", "Alemania"),
-    )
-    conn.commit()
-
-    # Insertar algunos goleadores iniciales
-    cursor.execute(
-        "INSERT INTO players (name, team_id, goals) VALUES (?, ?, ?)",
-        ("Kylian Mbappé", 1, 5),
-    )
-    cursor.execute(
-        "INSERT INTO players (name, team_id, goals) VALUES (?, ?, ?)",
-        ("Erling Haaland", 2, 6),
-    )
-    cursor.execute(
-        "INSERT INTO players (name, team_id, goals) VALUES (?, ?, ?)",
-        ("Robert Lewandowski", 3, 4),
-    )
-    cursor.execute(
-        "INSERT INTO players (name, team_id, goals) VALUES (?, ?, ?)",
-        ("Harry Kane", 4, 5),
-    )
-    conn.commit()
-
-  conn.close()
+log = logging.getLogger("api_champions")
+api = Blueprint("api", __name__, url_prefix="/api")
+jwt = JWTManager()
 
 
-# Inicializar la base de datos al arrancar
-init_db()
+# ---------------------------------------------------------------------------
+# Respuestas JSON consistentes (RF06)
+#   Éxito: {"status": "success", "message": ..., "data": ...}
+#   Error: {"status": "error",   "error": ...,   "details": ...}
+# ---------------------------------------------------------------------------
+def ok(data=None, message=None, status=200, **meta):
+    body = {"status": "success", "message": message, "data": data}
+    body.update(meta)
+    return jsonify(body), status
 
 
-# --- 0. INTERFAZ VISUAL ---
-@app.route("/")
-def index():
-  return render_template("index.html")
+def error_response(status, message, details=None, code=None):
+    body = {"status": "error", "error": message}
+    if details:
+        body["details"] = details
+    if code:
+        body["code"] = code
+    return jsonify(body), status
 
 
-# --- 1. AUTENTICACIÓN (JWT) ---
-@app.route("/api/auth/login", methods=["POST"])
+# ---------------------------------------------------------------------------
+# Autenticación y permisos (RF03 / RF04)
+# ---------------------------------------------------------------------------
+@jwt.user_lookup_loader
+def _load_user(_header, payload):
+    """Cada petición protegida comprueba que el usuario del token siga existiendo."""
+    row = get_db().execute(
+        "SELECT id, username, role FROM users WHERE id = ?", (int(payload["sub"]),)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+@jwt.user_lookup_error_loader
+def _user_not_found(_header, _payload):
+    return error_response(401, "El usuario del token ya no existe. Inicia sesión de nuevo.", code="invalid_token")
+
+
+@jwt.unauthorized_loader
+def _missing_token(_reason):
+    return error_response(401, "Falta el token de acceso. Inicia sesión.", code="missing_token")
+
+
+@jwt.invalid_token_loader
+def _invalid_token(_reason):
+    return error_response(401, "Token inválido o alterado. Inicia sesión de nuevo.", code="invalid_token")
+
+
+@jwt.expired_token_loader
+def _expired_token(_header, _payload):
+    return error_response(401, "Tu sesión expiró. Inicia sesión de nuevo.", code="token_expired")
+
+
+def admin_required(fn):
+    """Exige token válido y rol 'admin' (el rol se lee de la base, no del cliente)."""
+
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        verify_jwt_in_request()
+        if current_user["role"] != "admin":
+            raise ApiError(403, "No tienes permisos para esta acción (requiere rol administrador)")
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+# ---------------------------------------------------------------------------
+# Utilidades de datos
+# ---------------------------------------------------------------------------
+def _team_or_404(team_id):
+    row = get_db().execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
+    if row is None:
+        raise ApiError(404, f"No existe un equipo con id {team_id}")
+    return _team_dict(row)
+
+
+def _team_dict(row):
+    t = dict(row)
+    t["active"] = bool(t["active"])
+    return t
+
+
+def _active_teams():
+    rows = get_db().execute("SELECT * FROM teams WHERE active = 1 ORDER BY id").fetchall()
+    return [_team_dict(r) for r in rows]
+
+
+def _all_matches():
+    rows = get_db().execute(
+        "SELECT id, home_team_id, away_team_id, home_goals, away_goals FROM matches"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _stats_for(team_ids):
+    return services.compute_stats(team_ids, _all_matches())
+
+
+def _with_stats(team, stats):
+    return {**team, **stats.get(team["id"], services.empty_stats())}
+
+
+def _spots(n_teams, requested=None):
+    if requested is not None:
+        if requested >= n_teams:
+            raise ApiError(400, "Datos inválidos", {"spots": "Los cupos deben ser menores que el número de equipos activos"})
+        return requested
+    return services.default_spots(n_teams, current_app.config["QUALIFICATION_SPOTS"])
+
+
+def _like(value):
+    """Escapa comodines de LIKE para que el usuario no los inyecte."""
+    return "%" + value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+# ---------------------------------------------------------------------------
+# Salud y autenticación
+# ---------------------------------------------------------------------------
+@api.get("/health")
+def health():
+    teams = get_db().execute("SELECT COUNT(*) FROM teams").fetchone()[0]
+    return ok({"service": "api-champions", "database": "ok", "teams": teams})
+
+
+@api.post("/auth/login")
 def login():
-  data = request.get_json()
-  if (
-      not data
-      or data.get("username") != "admin"
-      or data.get("password") != "1234"
-  ):
-    return jsonify({"error": "Credenciales inválidas"}), 401
+    data = json_body()
+    v = Validator(data)
+    username = v.text("username", max_len=40, label="usuario")
+    password = v.text("password", max_len=128, label="contraseña")
+    v.check()
 
-  access_token = create_access_token(identity=data.get("username"))
-  return jsonify(access_token=access_token), 200
+    user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    if user is None or not check_password_hash(user["password_hash"], data["password"]):
+        # Mismo mensaje para usuario o contraseña: no revela cuál falló
+        raise ApiError(401, "Usuario o contraseña incorrectos")
 
-
-# --- 2. CRUD DE EQUIPOS ---
-@app.route("/api/teams", methods=["GET"])
-def get_teams():
-  conn = get_db_connection()
-  teams = conn.execute("SELECT * FROM teams").fetchall()
-  conn.close()
-  return jsonify([dict(row) for row in teams]), 200
-
-
-@app.route("/api/teams/<int:team_id>", methods=["GET"])
-def get_team_by_id(team_id):
-  conn = get_db_connection()
-  team = conn.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
-  conn.close()
-  if not team:
-    return jsonify({"error": "Equipo no encontrado"}), 404
-  return jsonify(dict(team)), 200
+    token = create_access_token(identity=str(user["id"]), additional_claims={"role": user["role"]})
+    expires = int(current_app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds())
+    return ok(
+        {
+            "access_token": token,
+            "token_type": "Bearer",
+            "expires_in": expires,
+            "user": {"id": user["id"], "username": user["username"], "role": user["role"]},
+        },
+        "Inicio de sesión exitoso",
+    )
 
 
-@app.route("/api/teams", methods=["POST"])
+@api.get("/auth/me")
 @jwt_required()
+def me():
+    return ok(dict(current_user))
+
+
+# ---------------------------------------------------------------------------
+# CRUD de equipos (RF01) + búsqueda (RF02)
+# ---------------------------------------------------------------------------
+@api.get("/teams")
+def list_teams():
+    name = query_text("name")
+    country = query_text("country", max_len=40)
+    include_inactive = query_bool("include_inactive")
+
+    sql = "SELECT * FROM teams WHERE 1 = 1"
+    params = []
+    if not include_inactive:
+        sql += " AND active = 1"
+    if name:
+        sql += " AND name LIKE ? ESCAPE '\\'"
+        params.append(_like(name))
+    if country:
+        sql += " AND country LIKE ? ESCAPE '\\'"
+        params.append(_like(country))
+    sql += " ORDER BY name COLLATE NOCASE"
+
+    teams = [_team_dict(r) for r in get_db().execute(sql, params).fetchall()]
+    stats = _stats_for([t["id"] for t in teams])
+    data = [_with_stats(t, stats) for t in teams]
+    message = None if data else "No se encontraron equipos con esos criterios"
+    return ok(data, message, count=len(data), filters={"name": name, "country": country, "include_inactive": include_inactive})
+
+
+@api.get("/teams/<int:team_id>")
+def get_team(team_id):
+    team = _team_or_404(team_id)
+    stats = _stats_for([team_id])
+    players = get_db().execute(
+        "SELECT id, name, goals FROM players WHERE team_id = ? ORDER BY goals DESC, name", (team_id,)
+    ).fetchall()
+    return ok({**_with_stats(team, stats), "players": [dict(p) for p in players]})
+
+
+def _validate_team(data, partial=False):
+    v = Validator(data)
+    name = v.text("name", min_len=2, max_len=60, required=not partial, pattern=Validator.NAME_RE, label="nombre")
+    country = v.text("country", min_len=3, max_len=40, required=not partial, pattern=Validator.COUNTRY_RE, label="país")
+    if name is not None and not any(c.isalpha() for c in name):
+        v.add("name", "'nombre' debe contener al menos una letra")
+    if partial and "name" not in data and "country" not in data:
+        v.add("body", "Envía al menos 'name' o 'country' para actualizar")
+    v.check()
+    return name, country
+
+
+def _ensure_unique_name(name, exclude_id=None):
+    row = get_db().execute(
+        "SELECT id, active FROM teams WHERE name = ? COLLATE NOCASE AND id IS NOT ?", (name, exclude_id)
+    ).fetchone()
+    if row:
+        extra = " (está desactivado; puedes reactivarlo)" if not row["active"] else ""
+        raise ApiError(409, f"Ya existe un equipo llamado '{name}'{extra}", {"existing_id": row["id"]})
+
+
+@api.post("/teams")
+@admin_required
 def create_team():
-  data = request.get_json()
-  if not data or "name" not in data or "country" not in data:
-    return jsonify({"error": "Faltan datos obligatorios (name, country)"}), 400
-
-  conn = get_db_connection()
-  cursor = conn.cursor()
-  cursor.execute(
-      "INSERT INTO teams (name, country) VALUES (?, ?)",
-      (data.get("name"), data.get("country")),
-  )
-  conn.commit()
-  new_id = cursor.lastrowid
-  conn.close()
-
-  return (
-      jsonify({
-          "id": new_id,
-          "name": data.get("name"),
-          "country": data.get("country"),
-          "points": 0,
-      }),
-      201,
-  )
+    name, country = _validate_team(json_body())
+    _ensure_unique_name(name)
+    db = get_db()
+    cur = db.execute("INSERT INTO teams (name, country) VALUES (?, ?)", (name, country))
+    db.commit()
+    team = _team_or_404(cur.lastrowid)
+    return ok(_with_stats(team, {}), f"Equipo '{name}' creado", 201)
 
 
-@app.route("/api/teams/<int:team_id>", methods=["PUT"])
-@jwt_required()
+@api.put("/teams/<int:team_id>")
+@admin_required
 def update_team(team_id):
-  data = request.get_json()
-  conn = get_db_connection()
-  team = conn.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
-  if not team:
-    conn.close()
-    return jsonify({"error": "Equipo no encontrado"}), 404
-
-  new_name = data.get("name", team["name"])
-  new_country = data.get("country", team["country"])
-
-  conn.execute(
-      "UPDATE teams SET name = ?, country = ? WHERE id = ?",
-      (new_name, new_country, team_id),
-  )
-  conn.commit()
-  conn.close()
-  return (
-      jsonify({
-          "message": "Equipo actualizado con éxito",
-          "id": team_id,
-          "name": new_name,
-          "country": new_country,
-      }),
-      200,
-  )
+    data = json_body()
+    team = _team_or_404(team_id)
+    name, country = _validate_team(data, partial=True)
+    name = name or team["name"]
+    country = country or team["country"]
+    _ensure_unique_name(name, exclude_id=team_id)
+    db = get_db()
+    db.execute("UPDATE teams SET name = ?, country = ? WHERE id = ?", (name, country, team_id))
+    db.commit()
+    updated = _team_or_404(team_id)
+    return ok(_with_stats(updated, _stats_for([team_id])), "Equipo actualizado")
 
 
-@app.route("/api/teams/<int:team_id>", methods=["DELETE"])
-@jwt_required()
-def delete_team(team_id):
-  conn = get_db_connection()
-  team = conn.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
-  if not team:
-    conn.close()
-    return jsonify({"error": "Equipo no encontrado"}), 404
+@api.delete("/teams/<int:team_id>")
+@admin_required
+def deactivate_team(team_id):
+    """Desactivación (borrado lógico).
 
-  conn.execute("DELETE FROM teams WHERE id = ?", (team_id,))
-  conn.commit()
-  conn.close()
-  return jsonify({"message": f"Equipo {team_id} eliminado con éxito"}), 200
-
-
-# --- 3. REGISTRO DE PARTIDOS Y CÁLCULO AUTOMÁTICO ---
-@app.route("/api/matches", methods=["GET"])
-def get_matches():
-  conn = get_db_connection()
-  matches = conn.execute("SELECT * FROM matches ORDER BY id DESC").fetchall()
-  conn.close()
-  return jsonify([dict(row) for row in matches]), 200
-
-
-@app.route("/api/matches", methods=["POST"])
-@jwt_required()
-def register_match():
-  data = request.get_json()
-  local_id = data.get("home_team_id")
-  away_id = data.get("away_team_id")
-  home_goals = data.get("home_goals")
-  away_goals = data.get("away_goals")
-
-  if None in (local_id, away_id, home_goals, away_goals):
-    return (
-        jsonify({
-            "error": (
-                "Faltan campos (home_team_id, away_team_id, home_goals,"
-                " away_goals)"
-            )
-        }),
-        400,
-    )
-
-  conn = get_db_connection()
-  home_team = conn.execute(
-      "SELECT * FROM teams WHERE id = ?", (local_id,)
-  ).fetchone()
-  away_team = conn.execute(
-      "SELECT * FROM teams WHERE id = ?", (away_id,)
-  ).fetchone()
-
-  if not home_team or not away_team:
-    conn.close()
-    return jsonify({"error": "Uno o ambos equipos no existen"}), 404
-
-  # Guardar partido
-  match_score = f"{home_goals} - {away_goals}"
-  conn.execute(
-      "INSERT INTO matches (home_team, away_team, score) VALUES (?, ?, ?)",
-      (home_team["name"], away_team["name"], match_score),
-  )
-
-  # Calcular estadísticas Local
-  h_pj = home_team["pj"] + 1
-  h_gf = home_team["gf"] + home_goals
-  h_gc = home_team["gc"] + away_goals
-  h_points = home_team["points"]
-  h_pg, h_pe, h_pp = home_team["pg"], home_team["pe"], home_team["pp"]
-
-  # Calcular estadísticas Visitante
-  a_pj = away_team["pj"] + 1
-  a_gf = away_team["gf"] + away_goals
-  a_gc = away_team["gc"] + home_goals
-  a_points = away_team["points"]
-  a_pg, a_pe, a_pp = away_team["pg"], away_team["pe"], away_team["pp"]
-
-  if home_goals > away_goals:
-    h_points += 3
-    h_pg += 1
-    a_pp += 1
-  elif away_goals > home_goals:
-    a_points += 3
-    a_pg += 1
-    h_pp += 1
-  else:
-    h_points += 1
-    a_points += 1
-    h_pe += 1
-    a_pe += 1
-
-  h_dg = h_gf - h_gc
-  a_dg = a_gf - a_gc
-
-  # Actualizar en BD (Local)
-  conn.execute(
-      (
-          "UPDATE teams SET points = ?, pj = ?, pg = ?, pe = ?, pp = ?, gf ="
-          " ?, gc = ?, dg = ? WHERE id = ?"
-      ),
-      (h_points, h_pj, h_pg, h_pe, h_pp, h_gf, h_gc, h_dg, local_id),
-  )
-
-  # Actualizar en BD (Visitante)
-  conn.execute(
-      (
-          "UPDATE teams SET points = ?, pj = ?, pg = ?, pe = ?, pp = ?, gf ="
-          " ?, gc = ?, dg = ? WHERE id = ?"
-      ),
-      (a_points, a_pj, a_pg, a_pe, a_pp, a_gf, a_gc, a_dg, away_id),
-  )
-
-  conn.commit()
-  conn.close()
-
-  return (
-      jsonify({
-          "message": "Partido registrado y base de datos actualizada",
-          "match": {
-              "home": home_team["name"],
-              "away": away_team["name"],
-              "score": match_score,
-          },
-      }),
-      201,
-  )
-
-
-# --- 4. CRUD Y GESTIÓN DE JUGADORES (Bota de Oro) ---
-@app.route("/api/players", methods=["POST"])
-@jwt_required()
-def create_player():
-  data = request.get_json()
-  name = data.get("name")
-  team_id = data.get("team_id")
-  initial_goals = data.get("goals", 0)
-
-  if not name or not team_id:
-    return (
-        jsonify({"error": "Faltan datos obligatorios (name, team_id)"}),
-        400,
-    )
-
-  conn = get_db_connection()
-  team = conn.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
-  if not team:
-    conn.close()
-    return jsonify({"error": "El equipo especificado no existe"}), 404
-
-  cursor = conn.cursor()
-  cursor.execute(
-      "INSERT INTO players (name, team_id, goals) VALUES (?, ?, ?)",
-      (name, team_id, initial_goals),
-  )
-  conn.commit()
-  new_player_id = cursor.lastrowid
-  conn.close()
-
-  return (
-      jsonify({
-          "message": "Jugador registrado con éxito",
-          "player": {
-              "id": new_player_id,
-              "name": name,
-              "team_id": team_id,
-              "team_name": team["name"],
-              "goals": initial_goals,
-          },
-      }),
-      201,
-  )
-
-
-# --- 5. FUNCIONALIDAD ESPECIAL N° 1: TABLA DE POSICIONES DINÁMICA ---
-@app.route("/api/standings", methods=["GET"])
-def get_standings():
-  conn = get_db_connection()
-  teams = conn.execute(
-      "SELECT * FROM teams ORDER BY points DESC, dg DESC, gf DESC"
-  ).fetchall()
-  matches_count = conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
-  conn.close()
-
-  return (
-      jsonify({
-          "status": "success",
-          "total_matches_played": matches_count,
-          "standings": [dict(row) for row in teams],
-      }),
-      200,
-  )
-
-
-# --- 6. FUNCIONALIDAD ESPECIAL N° 2: BOTA DE ORO (TABLA DE GOLEADORES) ---
-@app.route("/api/top-scorers", methods=["GET"])
-def get_top_scorers():
-  conn = get_db_connection()
-  query = """
-        SELECT p.id, p.name AS player_name, p.goals, t.name AS team_name, t.country
-        FROM players p
-        JOIN teams t ON p.team_id = t.id
-        ORDER BY p.goals DESC
+    Regla de negocio: un equipo no se borra físicamente porque sus partidos
+    forman parte de la historia del torneo y afectan los puntos de los rivales.
+    Un equipo desactivado no aparece en listados ni en la tabla, no puede
+    jugar partidos nuevos y sus jugadores salen de la Bota de Oro.
     """
-  scorers = conn.execute(query).fetchall()
-  conn.close()
-
-  return (
-      jsonify({
-          "status": "success",
-          "top_scorers": [dict(row) for row in scorers],
-      }),
-      200,
-  )
+    team = _team_or_404(team_id)
+    if not team["active"]:
+        raise ApiError(409, f"El equipo '{team['name']}' ya está desactivado")
+    db = get_db()
+    db.execute("UPDATE teams SET active = 0 WHERE id = ?", (team_id,))
+    db.commit()
+    return ok(_team_or_404(team_id), f"Equipo '{team['name']}' desactivado")
 
 
-@app.route("/api/top-scorers", methods=["POST"])
-@jwt_required()
-def add_player_goal():
-  data = request.get_json()
-  player_id = data.get("player_id")
-  goals_to_add = data.get("goals", 1)
-
-  if not player_id:
-    return jsonify({"error": "Se requiere player_id"}), 400
-
-  conn = get_db_connection()
-  player = conn.execute(
-      "SELECT * FROM players WHERE id = ?", (player_id,)
-  ).fetchone()
-  if not player:
-    conn.close()
-    return jsonify({"error": "Jugador no encontrado"}), 404
-
-  new_goals = player["goals"] + goals_to_add
-  conn.execute(
-      "UPDATE players SET goals = ? WHERE id = ?", (new_goals, player_id)
-  )
-  conn.commit()
-  conn.close()
-
-  return (
-      jsonify({
-          "message": f"Goles actualizados para {player['name']}",
-          "total_goals": new_goals,
-      }),
-      200,
-  )
+@api.patch("/teams/<int:team_id>/activate")
+@admin_required
+def activate_team(team_id):
+    team = _team_or_404(team_id)
+    if team["active"]:
+        raise ApiError(409, f"El equipo '{team['name']}' ya está activo")
+    db = get_db()
+    db.execute("UPDATE teams SET active = 1 WHERE id = ?", (team_id,))
+    db.commit()
+    return ok(_team_or_404(team_id), f"Equipo '{team['name']}' reactivado")
 
 
-# --- 7. FUNCIONALIDAD ESPECIAL N° 3: GENERADOR AUTOMÁTICO DE FIXTURE (CALENDARIO) ---
-@app.route("/api/schedule/generate", methods=["POST"])
-@jwt_required()
-def generate_schedule():
-  conn = get_db_connection()
-  teams = conn.execute("SELECT id, name FROM teams").fetchall()
-  conn.close()
+# ---------------------------------------------------------------------------
+# Partidos
+# ---------------------------------------------------------------------------
+MATCH_SQL = """
+SELECT m.id, m.home_team_id, h.name AS home_team, m.away_team_id, a.name AS away_team,
+       m.home_goals, m.away_goals, m.played_at, m.created_by
+FROM matches m
+JOIN teams h ON h.id = m.home_team_id
+JOIN teams a ON a.id = m.away_team_id
+"""
 
-  team_list = [dict(t) for t in teams]
-  if len(team_list) < 2:
-    return (
-        jsonify({
-            "error": "Se necesitan al menos 2 equipos para generar el calendario"
-        }),
-        400,
+
+def _match_dict(row):
+    m = dict(row)
+    m["score"] = f"{m['home_goals']} - {m['away_goals']}"
+    return m
+
+
+@api.get("/matches")
+def list_matches():
+    team_id = query_int("team_id", min_value=1, max_value=10**9)
+    if team_id:
+        _team_or_404(team_id)
+        rows = get_db().execute(
+            MATCH_SQL + " WHERE m.home_team_id = ? OR m.away_team_id = ? ORDER BY m.id DESC", (team_id, team_id)
+        ).fetchall()
+    else:
+        rows = get_db().execute(MATCH_SQL + " ORDER BY m.id DESC").fetchall()
+    data = [_match_dict(r) for r in rows]
+    return ok(data, None if data else "Todavía no hay partidos registrados", count=len(data))
+
+
+@api.post("/matches")
+@admin_required
+def register_match():
+    v = Validator(json_body())
+    home_id = v.integer("home_team_id", min_value=1, label="equipo local")
+    away_id = v.integer("away_team_id", min_value=1, label="equipo visitante")
+    home_goals = v.integer("home_goals", min_value=0, max_value=99, label="goles local")
+    away_goals = v.integer("away_goals", min_value=0, max_value=99, label="goles visitante")
+    if home_id is not None and home_id == away_id:
+        v.add("away_team_id", "Un equipo no puede jugar contra sí mismo")
+    v.check()
+
+    home, away = _team_or_404(home_id), _team_or_404(away_id)
+    for t in (home, away):
+        if not t["active"]:
+            raise ApiError(409, f"'{t['name']}' está desactivado y no puede jugar partidos")
+
+    db = get_db()
+    exists = db.execute(
+        "SELECT id FROM matches WHERE home_team_id = ? AND away_team_id = ?", (home_id, away_id)
+    ).fetchone()
+    if exists:
+        raise ApiError(
+            409,
+            f"Ya se jugó {home['name']} (local) vs {away['name']}. "
+            "Cada pareja juega una vez de local y otra de visitante.",
+            {"existing_match_id": exists["id"]},
+        )
+
+    before = {r["id"]: r["position"] for r in _standings_rows()}
+    cur = db.execute(
+        "INSERT INTO matches (home_team_id, away_team_id, home_goals, away_goals, created_by) VALUES (?, ?, ?, ?, ?)",
+        (home_id, away_id, home_goals, away_goals, current_user["username"]),
     )
+    db.commit()
+    match = _match_dict(db.execute(MATCH_SQL + " WHERE m.id = ?", (cur.lastrowid,)).fetchone())
 
-  matches_schedule = []
-  for i in range(len(team_list)):
-    for j in range(i + 1, len(team_list)):
-      matches_schedule.append({
-          "home_team": team_list[i]["name"],
-          "away_team": team_list[j]["name"],
-          "status": "Programado",
-      })
-
-  return (
-      jsonify({
-          "message": (
-              f"Calendario generado exitosamente con {len(matches_schedule)}"
-              " encuentros"
-          ),
-          "total_rounds": len(team_list) - 1 if len(team_list) % 2 == 0 else len(team_list),
-          "schedule": matches_schedule,
-      }),
-      200,
-  )
+    # Efecto del partido en la tabla (antes y después)
+    after = {r["id"]: r for r in _standings_rows()}
+    effects = [
+        {
+            "team_id": tid,
+            "team": after[tid]["name"],
+            "points": after[tid]["points"],
+            "position_before": before.get(tid),
+            "position_after": after[tid]["position"],
+        }
+        for tid in (home_id, away_id)
+    ]
+    return ok({"match": match, "effects": effects}, "Partido registrado; la tabla se actualizó", 201)
 
 
-# --- 8. FUNCIONALIDAD ESPECIAL N° 4: SIMULADOR DE ELIMINATORIAS (IDA Y VUELTA) ---
-@app.route("/api/knockout/simulate", methods=["POST"])
+@api.delete("/matches/<int:match_id>")
+@admin_required
+def delete_match(match_id):
+    """Anula un partido mal registrado. La tabla se recalcula sola."""
+    db = get_db()
+    row = db.execute(MATCH_SQL + " WHERE m.id = ?", (match_id,)).fetchone()
+    if row is None:
+        raise ApiError(404, f"No existe un partido con id {match_id}")
+    db.execute("DELETE FROM matches WHERE id = ?", (match_id,))
+    db.commit()
+    return ok(_match_dict(row), "Partido anulado; la tabla se recalculó")
+
+
+# ---------------------------------------------------------------------------
+# FUNCIÓN ESPECIAL (RF10) – Motor del torneo
+# ---------------------------------------------------------------------------
+def _standings_rows():
+    teams = _active_teams()
+    return services.sort_standings(teams, services.compute_stats([t["id"] for t in teams], _all_matches()))
+
+
+@api.get("/standings")
+def standings():
+    """Tabla de posiciones calculada a partir de los partidos + estado de clasificación."""
+    teams = _active_teams()
+    matches = _all_matches()
+    rows = services.sort_standings(teams, services.compute_stats([t["id"] for t in teams], matches))
+    spots = _spots(len(rows)) if len(rows) >= 2 else 0
+    for r in rows:
+        r["zone"] = "clasifica" if r["position"] <= spots else "eliminado"
+        if spots:
+            q = services.qualification(r["id"], teams, matches, spots)
+            r["qualification_status"] = q["status"]
+            r["matches_remaining"] = q["matches_remaining"]
+    total = get_db().execute("SELECT COUNT(*) FROM matches").fetchone()[0]
+    return ok(rows, None if rows else "No hay equipos activos", total_matches_played=total, qualification_spots=spots)
+
+
+@api.get("/teams/<int:team_id>/qualification")
+def qualification(team_id):
+    """Calculadora matemática: ¿qué necesita un equipo para clasificar?"""
+    team = _team_or_404(team_id)
+    if not team["active"]:
+        raise ApiError(409, f"'{team['name']}' está desactivado y no participa en la clasificación")
+    teams = _active_teams()
+    if len(teams) < 2:
+        raise ApiError(409, "Se necesitan al menos 2 equipos activos")
+    requested = query_int("spots", min_value=1, max_value=1000)
+    spots = _spots(len(teams), requested)
+    result = services.qualification(team_id, teams, _all_matches(), spots)
+    position = next(r["position"] for r in _standings_rows() if r["id"] == team_id)
+    return ok({"team": team["name"], "position": position, **result})
+
+
+@api.get("/schedule")
+def schedule():
+    """Genera el calendario todos contra todos (no modifica datos)."""
+    double_round = query_bool("double_round", True)
+    only_pending = query_bool("only_pending", False)
+    teams = _active_teams()
+    if len(teams) < 2:
+        raise ApiError(409, "Se necesitan al menos 2 equipos activos para generar el calendario")
+    rounds = services.generate_fixture(teams, _all_matches(), double_round, only_pending)
+    total = sum(len(r["matches"]) for r in rounds)
+    msg = f"Calendario con {len(rounds)} jornadas y {total} partidos" if total else "No quedan partidos pendientes"
+    return ok(rounds, msg, total_rounds=len(rounds), total_matches=total)
+
+
+@api.post("/knockout/simulate")
 @jwt_required()
-def simulate_knockout():
-  data = request.get_json()
-  team1_id = data.get("team1_id")
-  team2_id = data.get("team2_id")
-
-  if not team1_id or not team2_id or team1_id == team2_id:
-    return (
-        jsonify({
-            "error": "Proporcione dos IDs de equipos válidos y diferentes"
-        }),
-        400,
-    )
-
-  conn = get_db_connection()
-  t1 = conn.execute("SELECT * FROM teams WHERE id = ?", (team1_id,)).fetchone()
-  t2 = conn.execute("SELECT * FROM teams WHERE id = ?", (team2_id,)).fetchone()
-  conn.close()
-
-  if not t1 or not t2:
-    return jsonify({"error": "Uno o ambos equipos no existen"}), 404
-
-  leg1_t1 = random.randint(0, 3)
-  leg1_t2 = random.randint(0, 3)
-
-  leg2_t2 = random.randint(0, 3)
-  leg2_t1 = random.randint(0, 3)
-
-  agg_t1 = leg1_t1 + leg2_t1
-  agg_t2 = leg1_t2 + leg2_t2
-
-  winner = None
-  penalties = False
-
-  if agg_t1 > agg_t2:
-    winner = t1["name"]
-  elif agg_t2 > agg_t1:
-    winner = t2["name"]
-  else:
-    penalties = True
-    winner = random.choice([t1["name"], t2["name"]])
-
-  return (
-      jsonify({
-          "match_summary": (
-              f"{t1['name']} vs {t2['name']} (Eliminatoria Directa)"
-          ),
-          "leg_1": f"{t1['name']} {leg1_t1} - {leg1_t2} {t2['name']}",
-          "leg_2": f"{t2['name']} {leg2_t2} - {leg2_t1} {t1['name']}",
-          "aggregate_score": f"{t1['name']} {agg_t1} - {agg_t2} {t2['name']}",
-          "penalties_needed": penalties,
-          "qualified_to_next_round": winner,
-      }),
-      200,
-  )
+def knockout():
+    """Simula una eliminatoria ida y vuelta. No guarda nada en la base."""
+    v = Validator(json_body())
+    t1_id = v.integer("team1_id", min_value=1, label="equipo 1")
+    t2_id = v.integer("team2_id", min_value=1, label="equipo 2")
+    seed = v.integer("seed", min_value=0, max_value=10**9, required=False)
+    if t1_id is not None and t1_id == t2_id:
+        v.add("team2_id", "Elige dos equipos diferentes")
+    v.check()
+    t1, t2 = _team_or_404(t1_id), _team_or_404(t2_id)
+    for t in (t1, t2):
+        if not t["active"]:
+            raise ApiError(409, f"'{t['name']}' está desactivado")
+    result = services.simulate_knockout(t1, t2, _stats_for([t1_id, t2_id]), seed)
+    return ok(result, f"Clasifica {result['winner']['name']}")
 
 
-# --- 9. FUNCIONALIDAD ESPECIAL N° 5: SIMULADOR DE PUNTOS MATEMÁTICOS PARA CLASIFICAR ---
-@app.route("/api/teams/<int:team_id>/qualification-calculator", methods=["GET"])
-def qualification_calculator(team_id):
-  conn = get_db_connection()
-  team = conn.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
-  total_teams = conn.execute("SELECT COUNT(*) FROM teams").fetchone()[0]
-  conn.close()
+# ---- Bota de Oro (jugadores y goleadores) ----
+PLAYER_SQL = """
+SELECT p.id, p.name, p.goals, p.team_id, t.name AS team_name, t.country
+FROM players p JOIN teams t ON t.id = p.team_id
+"""
 
-  if not team:
-    return jsonify({"error": "Equipo no encontrado"}), 404
 
-  total_matches_in_group = (total_teams - 1) * 2
-  max_possible_points = total_matches_in_group * 3
-  threshold = int(max_possible_points * 0.55)
+def _player_or_404(player_id):
+    row = get_db().execute(PLAYER_SQL + " WHERE p.id = ?", (player_id,)).fetchone()
+    if row is None:
+        raise ApiError(404, f"No existe un jugador con id {player_id}")
+    return dict(row)
 
-  remaining_matches = total_matches_in_group - team["pj"]
-  remaining_points = remaining_matches * 3
-  current_points = team["points"]
 
-  points_needed = max(0, threshold - current_points)
-  is_mathematically_possible = (current_points + remaining_points) >= threshold
+@api.get("/top-scorers")
+def top_scorers():
+    limit = query_int("limit", min_value=1, max_value=50, default=10)
+    rows = get_db().execute(
+        PLAYER_SQL + " WHERE t.active = 1 ORDER BY p.goals DESC, p.name COLLATE NOCASE LIMIT ?", (limit,)
+    ).fetchall()
+    data = [{**dict(r), "rank": i} for i, r in enumerate(rows, start=1)]
+    return ok(data, None if data else "No hay goleadores registrados", count=len(data))
 
-  return (
-      jsonify({
-          "team": team["name"],
-          "current_points": current_points,
-          "matches_played": team["pj"],
-          "matches_remaining": remaining_matches,
-          "qualification_threshold_points": threshold,
-          "points_needed_to_qualify": points_needed,
-          "is_mathematically_eligible": is_mathematically_possible,
-          "status_message": (
-              f"{team['name']} necesita al menos {points_needed} puntos de los"
-              f" {remaining_points} restantes para asegurar la clasificación."
-              if is_mathematically_possible
-              else f"{team['name']} ha quedado eliminado matemáticamente."
-          ),
-      }),
-      200,
-  )
+
+@api.get("/players")
+def list_players():
+    team_id = query_int("team_id", min_value=1, max_value=10**9)
+    if team_id:
+        _team_or_404(team_id)
+        rows = get_db().execute(PLAYER_SQL + " WHERE p.team_id = ? ORDER BY p.name", (team_id,)).fetchall()
+    else:
+        rows = get_db().execute(PLAYER_SQL + " WHERE t.active = 1 ORDER BY t.name, p.name").fetchall()
+    data = [dict(r) for r in rows]
+    return ok(data, None if data else "No hay jugadores", count=len(data))
+
+
+@api.post("/players")
+@admin_required
+def create_player():
+    v = Validator(json_body())
+    name = v.text("name", min_len=2, max_len=60, pattern=Validator.NAME_RE, label="nombre")
+    team_id = v.integer("team_id", min_value=1, label="equipo")
+    goals = v.integer("goals", min_value=0, max_value=99, required=False, default=0, label="goles")
+    v.check()
+    team = _team_or_404(team_id)
+    if not team["active"]:
+        raise ApiError(409, f"'{team['name']}' está desactivado; no se le pueden agregar jugadores")
+    db = get_db()
+    try:
+        cur = db.execute("INSERT INTO players (name, team_id, goals) VALUES (?, ?, ?)", (name, team_id, goals))
+    except sqlite3.IntegrityError:
+        raise ApiError(409, f"'{name}' ya está registrado en {team['name']}")
+    db.commit()
+    return ok(_player_or_404(cur.lastrowid), f"Jugador '{name}' registrado", 201)
+
+
+@api.patch("/players/<int:player_id>/goals")
+@admin_required
+def add_goals(player_id):
+    """Suma (o corrige con números negativos) goles de un jugador."""
+    v = Validator(json_body())
+    delta = v.integer("goals", min_value=-10, max_value=10, label="goles")
+    if delta == 0:
+        v.add("goals", "'goles' no puede ser 0")
+    v.check()
+    player = _player_or_404(player_id)
+    new_total = player["goals"] + delta
+    if new_total < 0:
+        raise ApiError(409, f"{player['name']} tiene {player['goals']} goles; no puede quedar en negativo")
+    db = get_db()
+    db.execute("UPDATE players SET goals = ? WHERE id = ?", (new_total, player_id))
+    db.commit()
+    return ok(_player_or_404(player_id), f"Goles de {player['name']}: {new_total}")
+
+
+@api.delete("/players/<int:player_id>")
+@admin_required
+def delete_player(player_id):
+    player = _player_or_404(player_id)
+    db = get_db()
+    db.execute("DELETE FROM players WHERE id = ?", (player_id,))
+    db.commit()
+    return ok(player, f"Jugador '{player['name']}' eliminado")
+
+
+# ---------------------------------------------------------------------------
+# Fábrica de la aplicación
+# ---------------------------------------------------------------------------
+def create_app(test_config=None):
+    app = Flask(__name__)
+    app.config.update(load_config())
+    if test_config:
+        app.config.update(test_config)
+
+    secret = app.config.get("JWT_SECRET_KEY")
+    if not secret or len(secret) < 32:
+        raise RuntimeError(
+            "Falta JWT_SECRET_KEY (mínimo 32 caracteres). Copia .env.example a .env y define una clave."
+        )
+
+    app.json.sort_keys = False
+    jwt.init_app(app)
+    if app.config["CORS_ORIGINS"]:
+        CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
+    app.register_blueprint(api)
+    app.teardown_appcontext(close_db)
+
+    @app.get("/")
+    def index():
+        return render_template("index.html", api_base=app.config["FRONTEND_API_BASE"])
+
+    @app.errorhandler(ApiError)
+    def _api_error(err):
+        return error_response(err.status, err.message, err.details)
+
+    @app.errorhandler(HTTPException)
+    def _http_error(err):
+        messages = {
+            404: "Recurso no encontrado",
+            405: "Método no permitido para esta ruta",
+            415: "El cuerpo debe enviarse como JSON",
+        }
+        return error_response(err.code, messages.get(err.code, err.description))
+
+    @app.errorhandler(Exception)
+    def _unexpected(err):
+        log.exception("Error no controlado: %s", err)
+        return error_response(500, "Error interno del servidor")
+
+    @app.cli.command("init-db")
+    def init_db_command():
+        """Crea las tablas y los datos iniciales."""
+        init_db(app)
+        click.echo(f"Base de datos lista en {app.config['DATABASE_PATH']}")
+
+    @app.cli.command("create-user")
+    @click.argument("username")
+    @click.option("--role", type=click.Choice(["admin", "viewer"]), default="viewer")
+    @click.password_option()
+    def create_user_command(username, role, password):
+        """Crea un usuario (la contraseña se guarda con hash)."""
+        conn = connect(app.config["DATABASE_PATH"])
+        try:
+            create_user(conn, username, password, role)
+            conn.commit()
+            click.echo(f"Usuario '{username}' creado con rol {role}")
+        except sqlite3.IntegrityError:
+            click.echo(f"El usuario '{username}' ya existe")
+        finally:
+            conn.close()
+
+    @app.cli.command("demo-matches")
+    def demo_matches_command():
+        """Registra la primera jornada del calendario con resultados aleatorios."""
+        import random
+
+        conn = connect(app.config["DATABASE_PATH"])
+        try:
+            teams = [dict(r) for r in conn.execute("SELECT id, name FROM teams WHERE active = 1")]
+            played = [dict(r) for r in conn.execute("SELECT home_team_id, away_team_id FROM matches")]
+            rounds = services.generate_fixture(teams, played, True, True)
+            if not rounds:
+                click.echo("No hay partidos pendientes")
+                return
+            for m in rounds[0]["matches"]:
+                conn.execute(
+                    "INSERT INTO matches (home_team_id, away_team_id, home_goals, away_goals, created_by) "
+                    "VALUES (?, ?, ?, ?, 'demo')",
+                    (m["home_team_id"], m["away_team_id"], random.randint(0, 4), random.randint(0, 3)),
+                )
+            conn.commit()
+            click.echo(f"Jornada {rounds[0]['round']} registrada ({len(rounds[0]['matches'])} partidos)")
+        finally:
+            conn.close()
+
+    init_db(app)
+    return app
 
 
 if __name__ == "__main__":
-  app.run(debug=True)
+    port = int(os.getenv("PORT", "5000"))
+    create_app().run(host=os.getenv("HOST", "127.0.0.1"), port=port, debug=os.getenv("FLASK_DEBUG") == "1")

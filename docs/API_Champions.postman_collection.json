@@ -1,0 +1,2402 @@
+{
+  "info": {
+    "name": "API Champions",
+    "description": "Colección de la API Champions (proyecto integrador Cloud).\n\n1. Cambia `base_url` por la dirección publicada (ej. https://tuusuario.pythonanywhere.com) o http://127.0.0.1:5000 en local.\n2. Pon tu usuario y contraseña en `username` y `password`.\n3. Ejecuta **Iniciar sesión**: el token se guarda solo en la variable `token`.\n\nCada petición tiene ejemplos de respuesta reales (éxito y errores).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:5000"
+    },
+    {
+      "key": "username",
+      "value": "admin"
+    },
+    {
+      "key": "password",
+      "value": "cambia-esta-contrasena"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Autenticación",
+      "item": [
+        {
+          "name": "Iniciar sesión",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**Propósito:** Valida usuario y contraseña (guardada con hash) y entrega un JWT firmado con expiración. El script de pruebas guarda el token en la variable `token`.\n\n**Método y ruta:** `POST /api/auth/login`\n\n**Autenticación:** No requiere token.\n\n**Parámetros:** Ninguno\n\n**Cuerpo:** ```json\n{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}\n```\n\n**Errores posibles:**\n- **400**: Falta usuario o contraseña, o no son texto.\n- **401**: Usuario o contraseña incorrectos.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Login correcto",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/auth/login",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"TuContraseña\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Inicio de sesión exitoso\",\n  \"data\": {\n    \"access_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ…\",\n    \"token_type\": \"Bearer\",\n    \"expires_in\": 3600,\n    \"user\": {\n      \"id\": 1,\n      \"username\": \"admin\",\n      \"role\": \"admin\"\n    }\n  }\n}"
+            },
+            {
+              "name": "401 · Credenciales incorrectas",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/auth/login",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"mala\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"Usuario o contraseña incorrectos\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('token', body.data.access_token);",
+                  "}",
+                  "pm.test('Login responde 200 y entrega token', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body.data.access_token).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Usuario actual",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            },
+            "description": "**Propósito:** Comprueba que el token sea válido y devuelve el usuario y su rol.\n\n**Método y ruta:** `GET /api/auth/me`\n\n**Autenticación:** Requiere token (cualquier rol).\n\n**Parámetros:** Ninguno\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **401**: Falta el token, está alterado o expiró (`code`: missing_token / invalid_token / token_expired).\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Token válido",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/auth/me",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "me"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": null,\n  \"data\": {\n    \"id\": 1,\n    \"username\": \"admin\",\n    \"role\": \"admin\"\n  }\n}"
+            },
+            {
+              "name": "401 · Token alterado",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/auth/me",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "me"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"Token inválido o alterado. Inicia sesión de nuevo.\",\n  \"code\": \"invalid_token\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Estado del servicio",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "health"
+              ]
+            },
+            "description": "**Propósito:** Verifica que la API y la base de datos respondan (útil después de desplegar).\n\n**Método y ruta:** `GET /api/health`\n\n**Autenticación:** No requiere token.\n\n**Parámetros:** Ninguno\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **500**: Error interno.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Servicio activo",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/health",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "health"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": null,\n  \"data\": {\n    \"service\": \"api-champions\",\n    \"database\": \"ok\",\n    \"teams\": 8\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Equipos (CRUD y búsqueda)",
+      "item": [
+        {
+          "name": "Listar y filtrar equipos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/teams?name=madrid&country=España",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "teams"
+              ],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "madrid"
+                },
+                {
+                  "key": "country",
+                  "value": "España"
+                }
+              ]
+            },
+            "description": "**Propósito:** Lista los equipos activos con sus estadísticas. Filtra por coincidencia parcial de nombre y/o país (sin distinguir mayúsculas). Una búsqueda sin coincidencias devuelve 200 con lista vacía y mensaje.\n\n**Método y ruta:** `GET /api/teams?name=madrid&country=España`\n\n**Autenticación:** No requiere token.\n\n**Parámetros:** `name` (texto, opcional, máx. 60) · `country` (texto, opcional, máx. 40) · `include_inactive` (true/false, opcional)\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **400**: Parámetro demasiado largo o include_inactive no es true/false.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Con resultados",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/teams?name=madrid&country=España",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams"
+                  ],
+                  "query": [
+                    {
+                      "key": "name",
+                      "value": "madrid"
+                    },
+                    {
+                      "key": "country",
+                      "value": "España"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": null,\n  \"data\": [\n    {\n      \"id\": 1,\n      \"name\": \"Real Madrid\",\n      \"country\": \"España\",\n      \"active\": true,\n      \"created_at\": \"2026-11-17 04:31:21\",\n      \"points\": 0,\n      \"pj\": 0,\n      \"pg\": 0,\n      \"pe\": 0,\n      \"pp\": 0,\n      \"gf\": 0,\n      \"gc\": 0,\n      \"dg\": 0\n    }\n  ],\n  \"count\": 1,\n  \"filters\": {\n    \"name\": \"madrid\",\n    \"country\": \"España\",\n    \"include_inactive\": false\n  }\n}"
+            },
+            {
+              "name": "200 · Sin resultados",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/teams?name=zzz",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams"
+                  ],
+                  "query": [
+                    {
+                      "key": "name",
+                      "value": "zzz"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"No se encontraron equipos con esos criterios\",\n  \"data\": [],\n  \"count\": 0,\n  \"filters\": {\n    \"name\": \"zzz\",\n    \"country\": null,\n    \"include_inactive\": false\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Consultar equipo por ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/teams/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "teams",
+                "1"
+              ]
+            },
+            "description": "**Propósito:** Devuelve un equipo (incluso desactivado) con estadísticas y jugadores.\n\n**Método y ruta:** `GET /api/teams/1`\n\n**Autenticación:** No requiere token.\n\n**Parámetros:** `id` en la ruta (entero)\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **404**: No existe un equipo con ese ID.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Encontrado",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/teams/1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams",
+                    "1"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": null,\n  \"data\": {\n    \"id\": 1,\n    \"name\": \"Real Madrid\",\n    \"country\": \"España\",\n    \"active\": true,\n    \"created_at\": \"2026-11-17 04:31:21\",\n    \"points\": 0,\n    \"pj\": 0,\n    \"pg\": 0,\n    \"pe\": 0,\n    \"pp\": 0,\n    \"gf\": 0,\n    \"gc\": 0,\n    \"dg\": 0,\n    \"players\": [\n      {\n        \"id\": 1,\n        \"name\": \"Kylian Mbappé\",\n        \"goals\": 5\n      }\n    ]\n  }\n}"
+            },
+            {
+              "name": "404 · No existe",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/teams/999",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams",
+                    "999"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"No existe un equipo con id 999\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Crear equipo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/teams",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "teams"
+              ]
+            },
+            "description": "**Propósito:** Registra un equipo nuevo.\n\n**Método y ruta:** `POST /api/teams`\n\n**Autenticación:** Requiere token de un usuario con rol **admin** (403 si es de solo lectura).\n\n**Parámetros:** Ninguno\n\n**Cuerpo:** ```json\n{\n  \"name\": \"SL Benfica\",\n  \"country\": \"Portugal\"\n}\n```\n\n**Errores posibles:**\n- **400**: Campos faltantes, vacíos, de tipo incorrecto o fuera de rango (nombre 2–60, país 3–40 solo letras).\n- **401**: Falta el token, está alterado o expiró (`code`: missing_token / invalid_token / token_expired).\n- **403**: El usuario no tiene rol admin.\n- **409**: Ya existe un equipo con ese nombre.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"SL Benfica\",\n  \"country\": \"Portugal\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "201 · Creado",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/teams",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"SL Benfica\",\n  \"country\": \"Portugal\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Equipo 'SL Benfica' creado\",\n  \"data\": {\n    \"id\": 9,\n    \"name\": \"SL Benfica\",\n    \"country\": \"Portugal\",\n    \"active\": true,\n    \"created_at\": \"2026-11-17 04:31:22\",\n    \"points\": 0,\n    \"pj\": 0,\n    \"pg\": 0,\n    \"pe\": 0,\n    \"pp\": 0,\n    \"gf\": 0,\n    \"gc\": 0,\n    \"dg\": 0\n  }\n}"
+            },
+            {
+              "name": "400 · Datos inválidos",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/teams",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"\",\n  \"country\": 123\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"Datos inválidos\",\n  \"details\": {\n    \"name\": \"'nombre' no puede estar vacío\",\n    \"country\": \"'país' debe ser texto\"\n  }\n}"
+            },
+            {
+              "name": "409 · Nombre repetido",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/teams",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"real madrid\",\n  \"country\": \"España\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"Ya existe un equipo llamado 'real madrid'\",\n  \"details\": {\n    \"existing_id\": 1\n  }\n}"
+            },
+            {
+              "name": "401 · Sin token",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/teams",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Ajax\",\n  \"country\": \"Holanda\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"Falta el token de acceso. Inicia sesión.\",\n  \"code\": \"missing_token\"\n}"
+            },
+            {
+              "name": "403 · Rol sin permisos",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/teams",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Ajax\",\n  \"country\": \"Holanda\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"No tienes permisos para esta acción (requiere rol administrador)\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Actualizar equipo",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/teams/9",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "teams",
+                "9"
+              ]
+            },
+            "description": "**Propósito:** Modifica nombre y/o país (se puede enviar solo uno).\n\n**Método y ruta:** `PUT /api/teams/9`\n\n**Autenticación:** Requiere token de un usuario con rol **admin** (403 si es de solo lectura).\n\n**Parámetros:** `id` en la ruta\n\n**Cuerpo:** ```json\n{\n  \"name\": \"Benfica Lisboa\"\n}\n```\n\n**Errores posibles:**\n- **400**: Datos inválidos o cuerpo vacío.\n- **401**: Falta el token, está alterado o expiró (`code`: missing_token / invalid_token / token_expired).\n- **403**: El usuario no tiene rol admin.\n- **404**: No existe el equipo.\n- **409**: El nombre ya lo usa otro equipo.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Benfica Lisboa\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Actualizado",
+              "originalRequest": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/teams/9",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams",
+                    "9"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Benfica Lisboa\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Equipo actualizado\",\n  \"data\": {\n    \"id\": 9,\n    \"name\": \"Benfica Lisboa\",\n    \"country\": \"Portugal\",\n    \"active\": true,\n    \"created_at\": \"2026-11-17 04:31:22\",\n    \"points\": 0,\n    \"pj\": 0,\n    \"pg\": 0,\n    \"pe\": 0,\n    \"pp\": 0,\n    \"gf\": 0,\n    \"gc\": 0,\n    \"dg\": 0\n  }\n}"
+            },
+            {
+              "name": "404 · No existe",
+              "originalRequest": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/teams/999",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams",
+                    "999"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"X Club\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"No existe un equipo con id 999\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Desactivar equipo",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/teams/9",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "teams",
+                "9"
+              ]
+            },
+            "description": "**Propósito:** Borrado lógico: el equipo deja de aparecer en listados y tabla y no puede jugar, pero su historial se conserva (los puntos de sus rivales dependen de esos partidos).\n\n**Método y ruta:** `DELETE /api/teams/9`\n\n**Autenticación:** Requiere token de un usuario con rol **admin** (403 si es de solo lectura).\n\n**Parámetros:** `id` en la ruta\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **401**: Falta el token, está alterado o expiró (`code`: missing_token / invalid_token / token_expired).\n- **403**: El usuario no tiene rol admin.\n- **404**: No existe el equipo.\n- **409**: Ya estaba desactivado.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Desactivado",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/teams/9",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams",
+                    "9"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Equipo 'Benfica Lisboa' desactivado\",\n  \"data\": {\n    \"id\": 9,\n    \"name\": \"Benfica Lisboa\",\n    \"country\": \"Portugal\",\n    \"active\": false,\n    \"created_at\": \"2026-11-17 04:31:22\"\n  }\n}"
+            },
+            {
+              "name": "409 · Ya desactivado",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/teams/9",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams",
+                    "9"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"El equipo 'Benfica Lisboa' ya está desactivado\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Reactivar equipo",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/teams/9/activate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "teams",
+                "9",
+                "activate"
+              ]
+            },
+            "description": "**Propósito:** Vuelve a activar un equipo desactivado.\n\n**Método y ruta:** `PATCH /api/teams/9/activate`\n\n**Autenticación:** Requiere token de un usuario con rol **admin** (403 si es de solo lectura).\n\n**Parámetros:** `id` en la ruta\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **401**: Falta el token, está alterado o expiró (`code`: missing_token / invalid_token / token_expired).\n- **403**: El usuario no tiene rol admin.\n- **404**: No existe el equipo.\n- **409**: Ya estaba activo.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Reactivado",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/teams/9/activate",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams",
+                    "9",
+                    "activate"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Equipo 'Benfica Lisboa' reactivado\",\n  \"data\": {\n    \"id\": 9,\n    \"name\": \"Benfica Lisboa\",\n    \"country\": \"Portugal\",\n    \"active\": true,\n    \"created_at\": \"2026-11-17 04:31:22\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Partidos",
+      "item": [
+        {
+          "name": "Registrar partido",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/matches",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matches"
+              ]
+            },
+            "description": "**Propósito:** Guarda un resultado. La tabla se recalcula sola y la respuesta incluye el efecto en la posición de cada equipo.\n\n**Método y ruta:** `POST /api/matches`\n\n**Autenticación:** Requiere token de un usuario con rol **admin** (403 si es de solo lectura).\n\n**Parámetros:** Ninguno\n\n**Cuerpo:** ```json\n{\n  \"home_team_id\": 1,\n  \"away_team_id\": 2,\n  \"home_goals\": 3,\n  \"away_goals\": 1\n}\n```\n\n**Errores posibles:**\n- **400**: IDs o goles no enteros, goles fuera de 0–99, o el mismo equipo como local y visitante.\n- **401**: Falta el token, está alterado o expiró (`code`: missing_token / invalid_token / token_expired).\n- **403**: El usuario no tiene rol admin.\n- **404**: Algún equipo no existe.\n- **409**: Equipo desactivado o ese partido (misma localía) ya se jugó.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"home_team_id\": 1,\n  \"away_team_id\": 2,\n  \"home_goals\": 3,\n  \"away_goals\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "201 · Registrado",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/matches",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "matches"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"home_team_id\": 1,\n  \"away_team_id\": 2,\n  \"home_goals\": 3,\n  \"away_goals\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Partido registrado; la tabla se actualizó\",\n  \"data\": {\n    \"match\": {\n      \"id\": 1,\n      \"home_team_id\": 1,\n      \"home_team\": \"Real Madrid\",\n      \"away_team_id\": 2,\n      \"away_team\": \"Manchester City\",\n      \"home_goals\": 3,\n      \"away_goals\": 1,\n      \"played_at\": \"2026-11-17 04:31:22\",\n      \"created_by\": \"admin\",\n      \"score\": \"3 - 1\"\n    },\n    \"effects\": [\n      {\n        \"team_id\": 1,\n        \"team\": \"Real Madrid\",\n        \"points\": 3,\n        \"position_before\": 9,\n        \"position_after\": 1\n      },\n      {\n        \"team_id\": 2,\n        \"team\": \"Manchester City\",\n        \"points\": 0,\n        \"position_before\": 7,\n        \"position_after\": 9\n      }\n    ]\n  }\n}"
+            },
+            {
+              "name": "409 · Repetido",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/matches",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "matches"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"home_team_id\": 1,\n  \"away_team_id\": 2,\n  \"home_goals\": 0,\n  \"away_goals\": 0\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"Ya se jugó Real Madrid (local) vs Manchester City. Cada pareja juega una vez de local y otra de visitante.\",\n  \"details\": {\n    \"existing_match_id\": 1\n  }\n}"
+            },
+            {
+              "name": "400 · Inválido",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/matches",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "matches"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"home_team_id\": 1,\n  \"away_team_id\": 1,\n  \"home_goals\": -1,\n  \"away_goals\": \"2\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"Datos inválidos\",\n  \"details\": {\n    \"home_goals\": \"'goles local' debe ser mayor o igual a 0\",\n    \"away_goals\": \"'goles visitante' debe ser un número entero\",\n    \"away_team_id\": \"Un equipo no puede jugar contra sí mismo\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Listar partidos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/matches",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matches"
+              ]
+            },
+            "description": "**Propósito:** Historial de resultados, del más reciente al más antiguo. Se puede filtrar por equipo.\n\n**Método y ruta:** `GET /api/matches`\n\n**Autenticación:** No requiere token.\n\n**Parámetros:** `team_id` (entero, opcional)\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **400**: team_id no es entero.\n- **404**: El equipo no existe.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Historial",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/matches",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "matches"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": null,\n  \"data\": [\n    {\n      \"id\": 1,\n      \"home_team_id\": 1,\n      \"home_team\": \"Real Madrid\",\n      \"away_team_id\": 2,\n      \"away_team\": \"Manchester City\",\n      \"home_goals\": 3,\n      \"away_goals\": 1,\n      \"played_at\": \"2026-11-17 04:31:22\",\n      \"created_by\": \"admin\",\n      \"score\": \"3 - 1\"\n    }\n  ],\n  \"count\": 1\n}"
+            }
+          ]
+        },
+        {
+          "name": "Anular partido",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/matches/2",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matches",
+                "2"
+              ]
+            },
+            "description": "**Propósito:** Elimina un resultado mal registrado; la tabla se recalcula.\n\n**Método y ruta:** `DELETE /api/matches/2`\n\n**Autenticación:** Requiere token de un usuario con rol **admin** (403 si es de solo lectura).\n\n**Parámetros:** `id` del partido en la ruta\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **401**: Falta el token, está alterado o expiró (`code`: missing_token / invalid_token / token_expired).\n- **403**: El usuario no tiene rol admin.\n- **404**: No existe el partido.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "404 · No existe",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/matches/999",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "matches",
+                    "999"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"No existe un partido con id 999\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Función especial: motor del torneo",
+      "item": [
+        {
+          "name": "Tabla de posiciones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/standings",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "standings"
+              ]
+            },
+            "description": "**Propósito:** Tabla calculada a partir de los partidos (3 pts victoria, 1 empate). Orden: puntos, diferencia de gol, goles a favor. Incluye la zona y el estado matemático de clasificación de cada equipo.\n\n**Método y ruta:** `GET /api/standings`\n\n**Autenticación:** No requiere token.\n\n**Parámetros:** Ninguno\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **500**: Error interno.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Tabla",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/standings",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "standings"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": null,\n  \"data\": [\n    {\n      \"id\": 1,\n      \"name\": \"Real Madrid\",\n      \"country\": \"España\",\n      \"active\": true,\n      \"created_at\": \"2026-11-17 04:31:21\",\n      \"points\": 3,\n      \"pj\": 1,\n      \"pg\": 1,\n      \"pe\": 0,\n      \"pp\": 0,\n      \"gf\": 3,\n      \"gc\": 1,\n      \"dg\": 2,\n      \"position\": 1,\n      \"zone\": \"clasifica\",\n      \"qualification_status\": \"en_disputa\",\n      \"matches_remaining\": 15\n    },\n    {\n      \"id\": 4,\n      \"name\": \"Bayern Múnich\",\n      \"country\": \"Alemania\",\n      \"active\": true,\n      \"created_at\": \"2026-11-17 04:31:21\",\n      \"points\": 1,\n      \"pj\": 1,\n      \"pg\": 0,\n      \"pe\": 1,\n      \"pp\": 0,\n      \"gf\": 1,\n      \"gc\": 1,\n      \"dg\": 0,\n      \"position\": 2,\n      \"zone\": \"clasifica\",\n      \"qualification_status\": \"en_disputa\",\n      \"matches_remaining\": 15\n    },\n    {\n      \"id\": 3,\n      \"name\": \"FC Barcelona\",\n      \"country\": \"España\",\n      \"active\": true,\n      \"created_at\": \"2026-11-17 04:31:21\",\n      \"points\": 1,\n      \"pj\": 1,\n      \"pg\": 0,\n      \"pe\": 1,\n      \"pp\": 0,\n      \"gf\": 1,\n      \"gc\": 1,\n      \"dg\": 0,\n      \"position\": 3,\n      \"zone\": \"clasifica\",\n      \"qualification_status\": \"en_disputa\",\n      \"matches_remaining\": 15\n    }\n  ],\n  \"total_matches_played\": 2,\n  \"qualification_spots\": 4\n}"
+            }
+          ]
+        },
+        {
+          "name": "Calculadora de clasificación",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/teams/1/qualification?spots=4",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "teams",
+                "1",
+                "qualification"
+              ],
+              "query": [
+                {
+                  "key": "spots",
+                  "value": "4"
+                }
+              ]
+            },
+            "description": "**Propósito:** Indica si un equipo ya está clasificado, eliminado o cuántas victorias necesita para asegurar el cupo sin depender de nadie.\n\n**Método y ruta:** `GET /api/teams/1/qualification?spots=4`\n\n**Autenticación:** No requiere token.\n\n**Parámetros:** `id` en la ruta · `spots` (entero opcional, cupos; por defecto la mitad de los equipos)\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **400**: spots no es entero o es mayor o igual al número de equipos.\n- **404**: El equipo no existe.\n- **409**: El equipo está desactivado.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Resultado",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/teams/1/qualification?spots=4",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams",
+                    "1",
+                    "qualification"
+                  ],
+                  "query": [
+                    {
+                      "key": "spots",
+                      "value": "4"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": null,\n  \"data\": {\n    \"team\": \"Real Madrid\",\n    \"position\": 1,\n    \"team_id\": 1,\n    \"current_points\": 3,\n    \"matches_played\": 1,\n    \"matches_remaining\": 15,\n    \"max_possible_points\": 48,\n    \"qualification_spots\": 4,\n    \"status\": \"en_disputa\",\n    \"wins_needed_to_secure\": 14,\n    \"points_needed_to_secure\": 42,\n    \"message\": \"Asegura la clasificación si gana 14 de sus 15 partidos restantes, empezando por sus rivales directos (Liverpool, Paris Saint-Germain, Inter de Milán).\"\n  }\n}"
+            },
+            {
+              "name": "400 · Cupos inválidos",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/teams/1/qualification?spots=20",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams",
+                    "1",
+                    "qualification"
+                  ],
+                  "query": [
+                    {
+                      "key": "spots",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"Datos inválidos\",\n  \"details\": {\n    \"spots\": \"Los cupos deben ser menores que el número de equipos activos\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Generar calendario",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/schedule?double_round=true&only_pending=true",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "schedule"
+              ],
+              "query": [
+                {
+                  "key": "double_round",
+                  "value": "true"
+                },
+                {
+                  "key": "only_pending",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "**Propósito:** Calendario todos contra todos (método del círculo). No modifica datos.\n\n**Método y ruta:** `GET /api/schedule?double_round=true&only_pending=true`\n\n**Autenticación:** No requiere token.\n\n**Parámetros:** `double_round` (true/false, ida y vuelta) · `only_pending` (true/false, omite los ya jugados)\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **400**: Parámetros no booleanos.\n- **409**: Menos de 2 equipos activos.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Calendario",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/schedule?double_round=false&only_pending=true",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "schedule"
+                  ],
+                  "query": [
+                    {
+                      "key": "double_round",
+                      "value": "false"
+                    },
+                    {
+                      "key": "only_pending",
+                      "value": "true"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Calendario con 9 jornadas y 34 partidos\",\n  \"data\": [\n    {\n      \"round\": 1,\n      \"matches\": [\n        {\n          \"home_team_id\": 9,\n          \"home_team\": \"Benfica Lisboa\",\n          \"away_team_id\": 2,\n          \"away_team\": \"Manchester City\",\n          \"status\": \"pendiente\"\n        },\n        {\n          \"home_team_id\": 3,\n          \"home_team\": \"FC Barcelona\",\n          \"away_team_id\": 8,\n          \"away_team\": \"Borussia Dortmund\",\n          \"status\": \"pendiente\"\n        },\n        {\n          \"home_team_id\": 7,\n          \"home_team\": \"Inter de Milán\",\n          \"away_team_id\": 4,\n          \"away_team\": \"Bayern Múnich\",\n          \"status\": \"pendiente\"\n        }\n      ]\n    },\n    {\n      \"round\": 2,\n      \"matches\": [\n        {\n          \"home_team_id\": 9,\n          \"home_team\": \"Benfica Lisboa\",\n          \"away_team_id\": 1,\n          \"away_team\": \"Real Madrid\",\n          \"status\": \"pendiente\"\n        },\n        {\n          \"home_team_id\": 7,\n          \"home_team\": \"Inter de Milán\",\n          \"away_team_id\": 2,\n          \"away_team\": \"Manchester City\",\n          \"status\": \"pendiente\"\n        },\n        {\n          \"home_team_id\": 3,\n          \"home_team\": \"FC Barcelona\",\n          \"away_team_id\": 6,\n          \"away_team\": \"Paris Saint-Germain\",\n          \"status\": \"pendiente\"\n        }\n      ]\n    },\n    {\n      \"round\": 3,\n      \"matches\": [\n        {\n          \"home_team_id\": 1,\n          \"home_team\": \"Real Madrid\",\n          \"away_team_id\": 8,\n          \"away_team\": \"Borussia Dortmund\",\n          \"status\": \"pendiente\"\n        },\n        {\n          \"home_team_id\": 7,\n          \"home_team\": \"Inter de Milán\",\n          \"away_team_id\": 9,\n          \"away_team\": \"Benfica Lisboa\",\n          \"status\": \"pendiente\"\n        },\n        {\n          \"home_team_id\": 5,\n          \"home_team\": \"Liverpool\",\n          \"away_team_id\": 2,\n          \"away_team\": \"Manchester City\",\n          \"status\": \"pendiente\"\n        }\n      ]\n    }\n  ],\n  \"total_rounds\": 9,\n  \"total_matches\": 34\n}"
+            }
+          ]
+        },
+        {
+          "name": "Simular eliminatoria",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/knockout/simulate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "knockout",
+                "simulate"
+              ]
+            },
+            "description": "**Propósito:** Simula ida y vuelta según los puntos por partido de cada equipo; si el global empata, penales. Con la misma `seed` el resultado es reproducible. No guarda nada.\n\n**Método y ruta:** `POST /api/knockout/simulate`\n\n**Autenticación:** Requiere token (cualquier rol).\n\n**Parámetros:** Ninguno\n\n**Cuerpo:** ```json\n{\n  \"team1_id\": 1,\n  \"team2_id\": 2,\n  \"seed\": 7\n}\n```\n\n**Errores posibles:**\n- **400**: IDs no enteros o iguales; seed inválida.\n- **401**: Falta el token, está alterado o expiró (`code`: missing_token / invalid_token / token_expired).\n- **404**: Algún equipo no existe.\n- **409**: Equipo desactivado.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"team1_id\": 1,\n  \"team2_id\": 2,\n  \"seed\": 7\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Simulación",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/knockout/simulate",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "knockout",
+                    "simulate"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"team1_id\": 1,\n  \"team2_id\": 2,\n  \"seed\": 7\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Clasifica Real Madrid\",\n  \"data\": {\n    \"team1\": {\n      \"id\": 1,\n      \"name\": \"Real Madrid\",\n      \"expected_goals_per_match\": 2.5\n    },\n    \"team2\": {\n      \"id\": 2,\n      \"name\": \"Manchester City\",\n      \"expected_goals_per_match\": 0.3\n    },\n    \"leg_1\": {\n      \"home\": \"Real Madrid\",\n      \"away\": \"Manchester City\",\n      \"home_goals\": 1,\n      \"away_goals\": 0\n    },\n    \"leg_2\": {\n      \"home\": \"Manchester City\",\n      \"away\": \"Real Madrid\",\n      \"home_goals\": 0,\n      \"away_goals\": 2\n    },\n    \"aggregate\": {\n      \"team1\": 3,\n      \"team2\": 0\n    },\n    \"penalties\": null,\n    \"winner\": {\n      \"id\": 1,\n      \"name\": \"Real Madrid\"\n    },\n    \"seed\": 7\n  }\n}"
+            },
+            {
+              "name": "400 · Mismo equipo",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/knockout/simulate",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "knockout",
+                    "simulate"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"team1_id\": 1,\n  \"team2_id\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"Datos inválidos\",\n  \"details\": {\n    \"team2_id\": \"Elige dos equipos diferentes\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Bota de Oro (goleadores)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/top-scorers?limit=5",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "top-scorers"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "**Propósito:** Ranking de goleadores de equipos activos.\n\n**Método y ruta:** `GET /api/top-scorers?limit=5`\n\n**Autenticación:** No requiere token.\n\n**Parámetros:** `limit` (1–50, por defecto 10)\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **400**: limit fuera de rango.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Ranking",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/top-scorers?limit=5",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "top-scorers"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "5"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": null,\n  \"data\": [\n    {\n      \"id\": 2,\n      \"name\": \"Erling Haaland\",\n      \"goals\": 6,\n      \"team_id\": 2,\n      \"team_name\": \"Manchester City\",\n      \"country\": \"Inglaterra\",\n      \"rank\": 1\n    },\n    {\n      \"id\": 4,\n      \"name\": \"Harry Kane\",\n      \"goals\": 5,\n      \"team_id\": 4,\n      \"team_name\": \"Bayern Múnich\",\n      \"country\": \"Alemania\",\n      \"rank\": 2\n    },\n    {\n      \"id\": 1,\n      \"name\": \"Kylian Mbappé\",\n      \"goals\": 5,\n      \"team_id\": 1,\n      \"team_name\": \"Real Madrid\",\n      \"country\": \"España\",\n      \"rank\": 3\n    }\n  ],\n  \"count\": 5\n}"
+            }
+          ]
+        },
+        {
+          "name": "Agregar jugador",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/players",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "players"
+              ]
+            },
+            "description": "**Propósito:** Registra un jugador en un equipo activo con goles iniciales opcionales (0–99).\n\n**Método y ruta:** `POST /api/players`\n\n**Autenticación:** Requiere token de un usuario con rol **admin** (403 si es de solo lectura).\n\n**Parámetros:** Ninguno\n\n**Cuerpo:** ```json\n{\n  \"name\": \"Vinícius Jr\",\n  \"team_id\": 1,\n  \"goals\": 4\n}\n```\n\n**Errores posibles:**\n- **400**: Datos inválidos.\n- **401**: Falta el token, está alterado o expiró (`code`: missing_token / invalid_token / token_expired).\n- **403**: El usuario no tiene rol admin.\n- **404**: El equipo no existe.\n- **409**: Equipo desactivado o jugador repetido en ese equipo.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Vinícius Jr\",\n  \"team_id\": 1,\n  \"goals\": 4\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "201 · Creado",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/players",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "players"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Vinícius Jr\",\n  \"team_id\": 1,\n  \"goals\": 4\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Jugador 'Vinícius Jr' registrado\",\n  \"data\": {\n    \"id\": 9,\n    \"name\": \"Vinícius Jr\",\n    \"goals\": 4,\n    \"team_id\": 1,\n    \"team_name\": \"Real Madrid\",\n    \"country\": \"España\"\n  }\n}"
+            },
+            {
+              "name": "409 · Repetido",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/players",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "players"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"vinícius jr\",\n  \"team_id\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"'vinícius jr' ya está registrado en Real Madrid\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Sumar o corregir goles",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/players/9/goals",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "players",
+                "9",
+                "goals"
+              ]
+            },
+            "description": "**Propósito:** Suma goles (o resta con negativos para corregir). El total nunca queda negativo.\n\n**Método y ruta:** `PATCH /api/players/9/goals`\n\n**Autenticación:** Requiere token de un usuario con rol **admin** (403 si es de solo lectura).\n\n**Parámetros:** `id` del jugador en la ruta\n\n**Cuerpo:** ```json\n{\n  \"goals\": 2\n}\n```\n\n**Errores posibles:**\n- **400**: goals no es entero entre -10 y 10 o es 0.\n- **401**: Falta el token, está alterado o expiró (`code`: missing_token / invalid_token / token_expired).\n- **403**: El usuario no tiene rol admin.\n- **404**: Jugador no existe.\n- **409**: El total quedaría negativo.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"goals\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Actualizado",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/players/9/goals",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "players",
+                    "9",
+                    "goals"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"goals\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Goles de Vinícius Jr: 6\",\n  \"data\": {\n    \"id\": 9,\n    \"name\": \"Vinícius Jr\",\n    \"goals\": 6,\n    \"team_id\": 1,\n    \"team_name\": \"Real Madrid\",\n    \"country\": \"España\"\n  }\n}"
+            },
+            {
+              "name": "409 · Quedaría negativo",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/players/1/goals",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "players",
+                    "1",
+                    "goals"
+                  ]
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"goals\": -10\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"error\": \"Kylian Mbappé tiene 5 goles; no puede quedar en negativo\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Listar jugadores",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/players?team_id=1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "players"
+              ],
+              "query": [
+                {
+                  "key": "team_id",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "**Propósito:** Jugadores de un equipo o de todos los equipos activos.\n\n**Método y ruta:** `GET /api/players?team_id=1`\n\n**Autenticación:** No requiere token.\n\n**Parámetros:** `team_id` (entero, opcional)\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **404**: El equipo no existe.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Jugadores",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/players?team_id=1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "players"
+                  ],
+                  "query": [
+                    {
+                      "key": "team_id",
+                      "value": "1"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": null,\n  \"data\": [\n    {\n      \"id\": 1,\n      \"name\": \"Kylian Mbappé\",\n      \"goals\": 5,\n      \"team_id\": 1,\n      \"team_name\": \"Real Madrid\",\n      \"country\": \"España\"\n    },\n    {\n      \"id\": 9,\n      \"name\": \"Vinícius Jr\",\n      \"goals\": 6,\n      \"team_id\": 1,\n      \"team_name\": \"Real Madrid\",\n      \"country\": \"España\"\n    }\n  ],\n  \"count\": 2\n}"
+            }
+          ]
+        },
+        {
+          "name": "Eliminar jugador",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/players/9",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "players",
+                "9"
+              ]
+            },
+            "description": "**Propósito:** Elimina un jugador de la Bota de Oro.\n\n**Método y ruta:** `DELETE /api/players/9`\n\n**Autenticación:** Requiere token de un usuario con rol **admin** (403 si es de solo lectura).\n\n**Parámetros:** `id` en la ruta\n\n**Cuerpo:** Sin cuerpo.\n\n**Errores posibles:**\n- **401**: Falta el token, está alterado o expiró (`code`: missing_token / invalid_token / token_expired).\n- **403**: El usuario no tiene rol admin.\n- **404**: Jugador no existe.\n\nFormato de éxito: `{\"status\": \"success\", \"message\": ..., \"data\": ...}`. Formato de error: `{\"status\": \"error\", \"error\": ..., \"details\": {...}}`.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "200 · Eliminado",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/players/9",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "players",
+                    "9"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Jugador 'Vinícius Jr' eliminado\",\n  \"data\": {\n    \"id\": 9,\n    \"name\": \"Vinícius Jr\",\n    \"goals\": 6,\n    \"team_id\": 1,\n    \"team_name\": \"Real Madrid\",\n    \"country\": \"España\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
