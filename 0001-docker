@@ -1,0 +1,257 @@
+From c18405e37adbc778cd547b5e5bd48f0488d78343 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Sebasti=C3=A1n=20Ayala?= <sebastiangonzaloag20@gmail.com>
+Date: Thu, 19 Nov 2026 14:40:43 -0500
+Subject: [PATCH] Docker: Dockerfile, docker-compose con volumen y CI de GitHub
+ Actions
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Dockerfile de producción: Python 3.13 slim, gunicorn con --preload,
+  usuario sin privilegios, HEALTHCHECK y base SQLite en el volumen /data.
+- docker-compose.yml con volumen persistente champions-data y env_file.
+- .dockerignore: excluye .env, datos locales, .git, pruebas y docs.
+- CI: pruebas en Python 3.11/3.13, construcción de la imagen y chequeo de salud.
+- Documentación de despliegue con contenedores.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UHZTzEwxEx5xd6xybv73pD
+---
+ .dockerignore            | 19 +++++++++++++++++
+ .github/workflows/ci.yml | 43 +++++++++++++++++++++++++++++++++++++++
+ Dockerfile               | 35 ++++++++++++++++++++++++++++++++
+ README.md                |  6 +++++-
+ docker-compose.yml       | 21 +++++++++++++++++++
+ docs/DESPLIEGUE.md       | 44 +++++++++++++++++++++++++++++++++++++++-
+ 6 files changed, 166 insertions(+), 2 deletions(-)
+ create mode 100644 .dockerignore
+ create mode 100644 .github/workflows/ci.yml
+ create mode 100644 Dockerfile
+ create mode 100644 docker-compose.yml
+
+diff --git a/.dockerignore b/.dockerignore
+new file mode 100644
+index 0000000..f3a1996
+--- /dev/null
++++ b/.dockerignore
+@@ -0,0 +1,19 @@
++# No copiar a la imagen: secretos, datos locales, entornos y archivos de desarrollo
++.env
++data/
++*.db
++.git/
++.github/
++.venv/
++venv/
++__pycache__/
++*.pyc
++.pytest_cache/
++tests/
++docs/
++consumidor/
++requirements-dev.txt
++pytest.ini
++Dockerfile
++docker-compose.yml
++.dockerignore
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..e69201d
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,43 @@
++# Integración continua: en cada push o pull request ejecuta las pruebas
++# y comprueba que la imagen de Docker se construye y responde.
++name: CI
++
++on:
++  push:
++  pull_request:
++
++jobs:
++  pruebas:
++    runs-on: ubuntu-latest
++    strategy:
++      matrix:
++        python-version: ["3.11", "3.13"]
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: ${{ matrix.python-version }}
++      - name: Instalar dependencias
++        run: pip install -r requirements-dev.txt
++      - name: Pruebas P01–P16
++        run: python -m pytest -v
++
++  docker:
++    runs-on: ubuntu-latest
++    needs: pruebas
++    steps:
++      - uses: actions/checkout@v4
++      - name: Construir imagen
++        run: docker build -t api-champions:ci .
++      - name: Levantar contenedor y verificar /api/health
++        run: |
++          docker run -d --name api -p 8000:8000 \
++            -e JWT_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_hex(32))')" \
++            -e ADMIN_PASSWORD="ci-$(python3 -c 'import secrets;print(secrets.token_hex(8))')" \
++            api-champions:ci
++          for i in $(seq 1 30); do
++            curl -fsS http://localhost:8000/api/health && exit 0
++            sleep 1
++          done
++          docker logs api
++          exit 1
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..a12a615
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,35 @@
++# Imagen de producción de API Champions (API + interfaz web)
++FROM python:3.13-slim
++
++ENV PYTHONDONTWRITEBYTECODE=1 \
++    PYTHONUNBUFFERED=1 \
++    PIP_NO_CACHE_DIR=1 \
++    PIP_DISABLE_PIP_VERSION_CHECK=1
++
++WORKDIR /app
++
++# 1) Dependencias primero: esta capa se reutiliza mientras requirements.txt no cambie
++COPY requirements.txt .
++RUN pip install -r requirements.txt
++
++# 2) Código de la aplicación
++COPY . .
++
++# 3) Usuario sin privilegios y carpeta para la base de datos (se monta como volumen)
++RUN useradd --create-home --uid 10001 appuser \
++    && mkdir -p /data \
++    && chown appuser:appuser /data
++USER appuser
++
++# La base SQLite vive en /data para que sobreviva a reinicios y nuevas versiones
++ENV DATABASE_PATH=/data/champions.db \
++    PORT=8000
++VOLUME ["/data"]
++EXPOSE 8000
++
++# Docker marca el contenedor como "healthy" cuando /api/health responde
++HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
++    CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/health' % os.environ.get('PORT','8000'), timeout=4)" || exit 1
++
++# gunicorn: servidor de producción. --preload crea la base una sola vez antes de lanzar los workers.
++CMD ["sh", "-c", "exec gunicorn wsgi:app --bind 0.0.0.0:${PORT} --workers 2 --preload --access-logfile -"]
+diff --git a/README.md b/README.md
+index 77a65cc..2653eaf 100644
+--- a/README.md
++++ b/README.md
+@@ -67,6 +67,8 @@ Navegador (templates/index.html + static/js/app.js)       consumidor/cliente.py
+ | `consumidor/cliente.py` | Segundo consumidor (cliente de consola) |
+ | `tests/` | 16 casos de prueba (pytest) y prueba de interfaz en navegador (Playwright) |
+ | `docs/` | Colección Postman, pruebas documentadas, guía de despliegue y evidencias |
++| `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Despliegue con contenedores |
++| `.github/workflows/ci.yml` | Integración continua (pruebas + imagen Docker) |
+ 
+ ## 4. Requisitos
+ 
+@@ -190,7 +192,9 @@ El detalle de cada caso, con pasos, resultado esperado y resultado obtenido, est
+ 🌐 **Publicado en https://sebastianag.pythonanywhere.com** (HTTPS, SQLite en disco persistente).
+ 
+ 
+-Guía paso a paso en **`docs/DESPLIEGUE.md`**. Recomendado: **PythonAnywhere**, que ofrece HTTPS y disco persistente para SQLite en el plan gratuito.
++Guía paso a paso en **`docs/DESPLIEGUE.md`**.
++
++**Con Docker:** `cp .env.example .env` y `docker compose up -d --build` → http://localhost:8000 (volumen persistente para SQLite, healthcheck y usuario sin privilegios). Cada push ejecuta la integración continua de `.github/workflows/ci.yml`: pruebas y construcción de la imagen. Recomendado: **PythonAnywhere**, que ofrece HTTPS y disco persistente para SQLite en el plan gratuito.
+ 
+ ## 9. Cumplimiento de requisitos
+ 
+diff --git a/docker-compose.yml b/docker-compose.yml
+new file mode 100644
+index 0000000..6f0304e
+--- /dev/null
++++ b/docker-compose.yml
+@@ -0,0 +1,21 @@
++# Uso:
++#   cp .env.example .env      # y define JWT_SECRET_KEY y las contraseñas
++#   docker compose up -d --build
++#   http://localhost:8000
++services:
++  api:
++    build: .
++    image: api-champions:latest
++    container_name: api-champions
++    env_file: .env
++    environment:
++      DATABASE_PATH: /data/champions.db
++      PORT: "8000"
++    ports:
++      - "8000:8000"
++    volumes:
++      - champions-data:/data   # volumen persistente para SQLite
++    restart: unless-stopped
++
++volumes:
++  champions-data:
+diff --git a/docs/DESPLIEGUE.md b/docs/DESPLIEGUE.md
+index 55d9d4c..c7e72ab 100644
+--- a/docs/DESPLIEGUE.md
++++ b/docs/DESPLIEGUE.md
+@@ -117,10 +117,52 @@ Si algo falla, revisa **Web → Log files → Error log**.
+ 
+ ---
+ 
++## Alternativa: contenedores (Docker)
++
++El repositorio incluye todo para desplegar con Docker:
++
++| Archivo | Para qué sirve |
++|---|---|
++| `Dockerfile` | Imagen de producción: Python 3.13 slim, gunicorn, usuario sin privilegios, `HEALTHCHECK` contra `/api/health` y la base en el volumen `/data` |
++| `.dockerignore` | Deja fuera de la imagen el `.env`, la base local, `.git`, las pruebas y la documentación |
++| `docker-compose.yml` | Levanta el servicio en el puerto 8000 con un **volumen persistente** (`champions-data`) para SQLite |
++| `.github/workflows/ci.yml` | Integración continua: en cada push ejecuta las pruebas (Python 3.11 y 3.13), construye la imagen y verifica `/api/health` |
++
++### Ejecutar con Docker Compose
++
++```bash
++cp .env.example .env            # define JWT_SECRET_KEY, ADMIN_PASSWORD y VIEWER_PASSWORD
++docker compose up -d --build    # construye la imagen y levanta el contenedor
++docker compose ps               # el estado debe pasar a "healthy"
++docker compose logs -f          # ver los registros de gunicorn
++```
++
++Abrir http://localhost:8000.
++
++### Probar la persistencia (P11 con contenedores)
++
++```bash
++# 1. Crear un equipo desde la interfaz
++docker compose down             # elimina el contenedor (el volumen se conserva)
++docker compose up -d            # contenedor nuevo
++# 2. El equipo sigue ahí
++docker compose down -v          # solo si quieres borrar también los datos
++```
++
++### Decisiones de la imagen
++
++- **Capas en orden:** primero `requirements.txt` y `pip install`; después el código. Si solo cambia el código, la capa de dependencias se reutiliza y la construcción es rápida.
++- **Seguridad:** corre como `appuser` (UID 10001), no como root, y los secretos llegan por variables de entorno (`env_file`), nunca dentro de la imagen.
++- **Servidor de producción:** gunicorn con 2 workers. `--preload` inicializa la base una sola vez antes de crear los workers, así no se duplican los datos iniciales.
++- **Salud:** Docker marca el contenedor como `healthy` o `unhealthy` según `/api/health`.
++- **Datos:** SQLite vive en `/data`, un volumen. Una imagen nueva o un contenedor recreado no borra la base.
++
++---
++
+ ## Alternativa: plataforma con volumen (Railway, Render de pago, Fly.io)
+ 
+ 1. Crea un servicio web desde el repositorio de GitHub.
+-2. **Comando de inicio:** `gunicorn wsgi:app --bind 0.0.0.0:$PORT`
++2. **Comando de inicio:** `gunicorn wsgi:app --bind 0.0.0.0:$PORT --preload` (o despliega directamente el `Dockerfile`)
+ 3. Crea un **volumen** montado en `/data`.
+ 4. Variables de entorno: las mismas del `.env`, con `DATABASE_PATH=/data/champions.db`.
+ 5. Activa el dominio público con HTTPS que ofrece la plataforma.
+-- 
+2.43.0
