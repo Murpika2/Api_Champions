@@ -4,9 +4,14 @@ venv/
 ENV/
 env/
 
-# Archivos de Python y caché
+# Python
 __pycache__/
 *.pyc
+.pytest_cache/
 
-# Base de datos local (opcional: si quieres que cada uno tenga su propia BD limpia)
-# champions.db
+# Secretos (usar .env.example como plantilla)
+.env
+
+# Base de datos local (cada entorno crea la suya)
+data/
+*.db

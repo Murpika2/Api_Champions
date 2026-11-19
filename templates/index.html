@@ -8,9 +8,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <!-- Dirección de la API: viene de la variable de entorno FRONTEND_API_BASE (NU03) -->
+  <script>window.APP_CONFIG = { apiBase: {{ api_base|tojson }} };</script>
 </head>
 <body>
+  <a class="skip-link" href="#clasificacion">Saltar al contenido</a>
   <div class="stars-bg" aria-hidden="true"></div>
+  <div class="loading-bar hidden" id="loadingBar" role="progressbar" aria-label="Cargando"></div>
 
   <!-- ============ HEADER ============ -->
   <header class="topbar">
@@ -21,25 +25,28 @@
         <span class="brand-main">CHAMPIONS LEAGUE</span>
       </span>
     </a>
-    <nav class="nav" id="nav">
+    <nav class="nav" id="nav" aria-label="Secciones">
       <a href="#clasificacion" class="nav-link active">Clasificación</a>
       <a href="#equipos" class="nav-link">Equipos</a>
       <a href="#partidos" class="nav-link">Partidos</a>
+      <a href="#especiales" class="nav-link">Especiales</a>
     </nav>
     <div class="auth-area">
-      <button class="btn btn-ghost" id="loginBtn">
-        <svg viewBox="0 0 24 24" class="ico"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.4 0-8 2.2-8 5v3h16v-3c0-2.8-3.6-5-8-5Z"/></svg>
+      <button class="btn btn-ghost" id="loginBtn" type="button">
+        <svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.4 0-8 2.2-8 5v3h16v-3c0-2.8-3.6-5-8-5Z"/></svg>
         Iniciar sesión
       </button>
       <div class="user-chip hidden" id="userChip">
-        <span class="dot"></span> admin
-        <button class="btn btn-mini" id="logoutBtn">Salir</button>
+        <span class="dot" aria-hidden="true"></span>
+        <span id="userName">admin</span>
+        <span class="role-tag" id="userRole">admin</span>
+        <button class="btn btn-mini" id="logoutBtn" type="button">Salir</button>
       </div>
     </div>
   </header>
 
   <!-- ============ HERO ============ -->
-  <section class="hero">
+  <section class="hero" aria-label="Resumen">
     <div class="hero-inner">
       <div class="hero-copy">
         <p class="eyebrow">Temporada 2026 · Fase de liga</p>
@@ -47,7 +54,7 @@
         <p class="hero-sub">Gestiona los clubes, registra resultados y sigue la clasificación en tiempo real.</p>
       </div>
       <div class="hero-trophy">
-        <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="Balón estrellado">
+        <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="">
       </div>
     </div>
     <div class="stats">
@@ -60,129 +67,205 @@
 
   <main>
     <!-- ============ CLASIFICACIÓN ============ -->
-    <section class="panel" id="clasificacion">
+    <section class="panel" id="clasificacion" aria-labelledby="h-clasif">
       <div class="panel-head">
-        <h2><span class="bar"></span>Clasificación</h2>
-        <button class="btn btn-ghost btn-sm" id="refreshBtn">↻ Actualizar</button>
+        <h2 id="h-clasif"><span class="bar"></span>Clasificación</h2>
+        <button class="btn btn-ghost btn-sm" id="refreshBtn" type="button">↻ Actualizar</button>
       </div>
       <div class="table-wrap">
         <table class="standings">
+          <caption class="sr-only">Tabla de posiciones. Pulsa Enter sobre un equipo para ver su ficha.</caption>
           <thead>
             <tr>
-              <th class="c-pos">#</th><th class="c-team">Club</th>
-              <th title="Partidos jugados">PJ</th><th title="Ganados">G</th><th title="Empatados">E</th><th title="Perdidos">P</th>
-              <th title="Goles a favor" class="hide-sm">GF</th><th title="Goles en contra" class="hide-sm">GC</th>
-              <th title="Diferencia de goles">DG</th><th class="c-pts">PTS</th>
+              <th class="c-pos" scope="col">#</th><th class="c-team" scope="col">Club</th>
+              <th scope="col" title="Partidos jugados">PJ</th><th scope="col" title="Ganados">G</th><th scope="col" title="Empatados">E</th><th scope="col" title="Perdidos">P</th>
+              <th scope="col" title="Goles a favor" class="hide-sm">GF</th><th scope="col" title="Goles en contra" class="hide-sm">GC</th>
+              <th scope="col" title="Diferencia de goles">DG</th><th class="c-pts" scope="col">PTS</th>
+              <th scope="col" class="hide-sm">Estado</th>
             </tr>
           </thead>
-          <tbody id="standingsBody"></tbody>
+          <tbody id="standingsBody"><tr><td colspan="11" class="empty">Cargando clasificación…</td></tr></tbody>
         </table>
       </div>
       <div class="legend">
-        <span><i class="lg lg-r16"></i>1–8 · Octavos de final</span>
-        <span><i class="lg lg-po"></i>9–24 · Play-off</span>
-        <span><i class="lg lg-out"></i>25+ · Eliminado</span>
+        <span><i class="lg lg-r16"></i><span id="legendSpots">Zona de clasificación</span></span>
+        <span><i class="lg lg-out"></i>Fuera de la zona</span>
+        <span><b class="badge b-ok">✓</b> Clasificado matemáticamente</span>
+        <span><b class="badge b-out">✕</b> Eliminado matemáticamente</span>
       </div>
     </section>
 
     <!-- ============ EQUIPOS ============ -->
-    <section class="panel" id="equipos">
+    <section class="panel" id="equipos" aria-labelledby="h-equipos">
       <div class="panel-head">
-        <h2><span class="bar"></span>Equipos</h2>
-        <div class="head-actions">
-          <form class="search" id="searchForm">
-            <input type="number" min="1" id="searchId" placeholder="Buscar por ID" aria-label="Buscar equipo por ID">
-            <button class="btn btn-ghost btn-sm" type="submit">Buscar</button>
-          </form>
-          <button class="btn btn-primary btn-sm" id="addTeamBtn">+ Nuevo equipo</button>
-        </div>
+        <h2 id="h-equipos"><span class="bar"></span>Equipos</h2>
+        <button class="btn btn-primary btn-sm" id="addTeamBtn" type="button">+ Nuevo equipo</button>
       </div>
-      <div class="teams-grid" id="teamsGrid"></div>
+      <form class="filters" id="searchForm" role="search">
+        <label>Nombre<input type="search" id="searchName" maxlength="60" placeholder="Ej. Madrid"></label>
+        <label>País<input type="search" id="searchCountry" maxlength="40" placeholder="Ej. España"></label>
+        <label class="check"><input type="checkbox" id="searchInactive"> Ver desactivados</label>
+        <div class="filter-btns">
+          <button class="btn btn-ghost btn-sm" type="submit">Buscar</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="clearSearch">Limpiar</button>
+        </div>
+      </form>
+      <p class="result-info" id="teamsInfo" aria-live="polite"></p>
+      <div class="teams-grid" id="teamsGrid"><p class="empty">Cargando equipos…</p></div>
     </section>
 
     <!-- ============ PARTIDOS ============ -->
-    <section class="panel" id="partidos">
+    <section class="panel" id="partidos" aria-labelledby="h-partidos">
       <div class="panel-head">
-        <h2><span class="bar"></span>Partidos</h2>
+        <h2 id="h-partidos"><span class="bar"></span>Partidos</h2>
       </div>
       <div class="matches-layout">
         <form class="match-form" id="matchForm">
           <p class="form-title">Registrar resultado</p>
           <div class="scoreboard">
             <div class="side">
-              <span class="side-lbl">Local</span>
+              <label class="side-lbl" for="homeTeam">Local</label>
               <div class="crest-slot" id="homeCrest"></div>
               <select id="homeTeam" required></select>
             </div>
             <div class="score-inputs">
-              <input type="number" id="homeGoals" min="0" max="99" value="0" required aria-label="Goles local">
-              <span class="vs">:</span>
-              <input type="number" id="awayGoals" min="0" max="99" value="0" required aria-label="Goles visitante">
+              <input type="number" id="homeGoals" min="0" max="99" value="0" required aria-label="Goles del local">
+              <span class="vs" aria-hidden="true">:</span>
+              <input type="number" id="awayGoals" min="0" max="99" value="0" required aria-label="Goles del visitante">
             </div>
             <div class="side">
-              <span class="side-lbl">Visitante</span>
+              <label class="side-lbl" for="awayTeam">Visitante</label>
               <div class="crest-slot" id="awayCrest"></div>
               <select id="awayTeam" required></select>
             </div>
           </div>
+          <p class="form-error" id="matchError" role="alert"></p>
           <button class="btn btn-primary btn-block" type="submit">⚽ Registrar partido</button>
-          <p class="hint">Los puntos, goles y diferencia se calculan automáticamente.</p>
+          <p class="hint">Los puntos, goles y diferencia se calculan automáticamente. Cada pareja juega una vez de local y otra de visitante.</p>
+          <div class="effects hidden" id="matchEffects" aria-live="polite"></div>
         </form>
 
         <div class="history">
           <p class="form-title">Últimos resultados</p>
-          <ul class="match-list" id="matchList"></ul>
+          <ul class="match-list" id="matchList"><li class="empty">Cargando partidos…</li></ul>
         </div>
+      </div>
+    </section>
+
+    <!-- ============ FUNCIONES ESPECIALES ============ -->
+    <section class="panel" id="especiales" aria-labelledby="h-esp">
+      <div class="panel-head">
+        <h2 id="h-esp"><span class="bar"></span>Funciones especiales</h2>
+      </div>
+      <div class="tabs" role="tablist" aria-label="Funciones especiales">
+        <button class="tab active" role="tab" aria-selected="true" aria-controls="tab-calc" id="t-calc" type="button">🧮 Calculadora</button>
+        <button class="tab" role="tab" aria-selected="false" aria-controls="tab-scorers" id="t-scorers" type="button" tabindex="-1">👟 Bota de Oro</button>
+        <button class="tab" role="tab" aria-selected="false" aria-controls="tab-fixture" id="t-fixture" type="button" tabindex="-1">📅 Calendario</button>
+        <button class="tab" role="tab" aria-selected="false" aria-controls="tab-ko" id="t-ko" type="button" tabindex="-1">⚔️ Eliminatoria</button>
+      </div>
+
+      <!-- Calculadora de clasificación -->
+      <div class="tab-panel" role="tabpanel" id="tab-calc" aria-labelledby="t-calc">
+        <p class="muted">Calcula si un equipo ya está clasificado, eliminado o cuántos puntos necesita para asegurar su cupo, según los partidos que le quedan.</p>
+        <form class="tool-form" id="calcForm">
+          <label>Equipo<select id="calcTeam" required></select></label>
+          <label>Cupos de clasificación<input type="number" id="calcSpots" min="1" placeholder="Auto"></label>
+          <button class="btn btn-primary btn-sm" type="submit">Calcular</button>
+        </form>
+        <div class="tool-result" id="calcResult" aria-live="polite"></div>
+      </div>
+
+      <!-- Bota de Oro -->
+      <div class="tab-panel hidden" role="tabpanel" id="tab-scorers" aria-labelledby="t-scorers">
+        <p class="muted">Ranking de goleadores. Registra jugadores y suma o corrige sus goles.</p>
+        <form class="tool-form" id="playerForm">
+          <label>Jugador<input id="playerName" maxlength="60" required placeholder="Ej. Vinícius Jr"></label>
+          <label>Equipo<select id="playerTeam" required></select></label>
+          <label>Goles iniciales<input type="number" id="playerGoals" min="0" max="99" value="0"></label>
+          <button class="btn btn-primary btn-sm" type="submit">+ Agregar jugador</button>
+        </form>
+        <p class="form-error" id="playerError" role="alert"></p>
+        <div class="table-wrap">
+          <table class="standings scorers">
+            <caption class="sr-only">Tabla de goleadores</caption>
+            <thead><tr><th scope="col" class="c-pos">#</th><th scope="col" class="c-team">Jugador</th><th scope="col" class="c-team hide-sm">Equipo</th><th scope="col" class="c-pts">Goles</th><th scope="col">Acciones</th></tr></thead>
+            <tbody id="scorersBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Calendario -->
+      <div class="tab-panel hidden" role="tabpanel" id="tab-fixture" aria-labelledby="t-fixture">
+        <p class="muted">Genera el calendario todos contra todos. Desde un partido pendiente puedes ir directo a registrar su resultado.</p>
+        <form class="tool-form" id="fixtureForm">
+          <label class="check"><input type="checkbox" id="fxDouble" checked> Ida y vuelta</label>
+          <label class="check"><input type="checkbox" id="fxPending"> Solo pendientes</label>
+          <button class="btn btn-primary btn-sm" type="submit">Generar calendario</button>
+        </form>
+        <div class="tool-result" id="fixtureResult" aria-live="polite"></div>
+      </div>
+
+      <!-- Simulador de eliminatoria -->
+      <div class="tab-panel hidden" role="tabpanel" id="tab-ko" aria-labelledby="t-ko">
+        <p class="muted">Simula una eliminatoria ida y vuelta. La fuerza de cada equipo depende de sus puntos por partido en la liga. No modifica la tabla. Requiere iniciar sesión.</p>
+        <form class="tool-form" id="koForm">
+          <label>Equipo 1<select id="koTeam1" required></select></label>
+          <label>Equipo 2<select id="koTeam2" required></select></label>
+          <label>Semilla (opcional)<input type="number" id="koSeed" min="0" placeholder="Aleatoria"></label>
+          <button class="btn btn-primary btn-sm" type="submit">Simular</button>
+        </form>
+        <p class="form-error" id="koError" role="alert"></p>
+        <div class="tool-result" id="koResult" aria-live="polite"></div>
       </div>
     </section>
   </main>
 
   <footer class="footer">
     <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="footer-logo">
-    <p>API Champions · Interfaz por Sebastián</p>
+    <p>API Champions · Proyecto integrador Cloud</p>
   </footer>
 
   <!-- ============ MODALES ============ -->
   <div class="modal hidden" id="loginModal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
     <form class="modal-card" id="loginForm">
-      <button type="button" class="modal-x" data-close>&times;</button>
+      <button type="button" class="modal-x" data-close aria-label="Cerrar">&times;</button>
       <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="modal-logo">
-      <h3 id="loginTitle">Acceso administrador</h3>
-      <p class="muted">Inicia sesión para crear, editar y eliminar equipos o registrar partidos.</p>
-      <label>Usuario<input name="username" autocomplete="username" required></label>
-      <label>Contraseña<input name="password" type="password" autocomplete="current-password" required></label>
-      <p class="form-error" id="loginError"></p>
+      <h3 id="loginTitle">Iniciar sesión</h3>
+      <p class="muted" id="loginMsg">Inicia sesión para crear, editar y desactivar equipos o registrar partidos.</p>
+      <label>Usuario<input name="username" autocomplete="username" required maxlength="40"></label>
+      <label>Contraseña<input name="password" type="password" autocomplete="current-password" required maxlength="128"></label>
+      <p class="form-error" id="loginError" role="alert"></p>
       <button class="btn btn-primary btn-block" type="submit">Entrar</button>
     </form>
   </div>
 
   <div class="modal hidden" id="teamModal" role="dialog" aria-modal="true" aria-labelledby="teamTitle">
-    <form class="modal-card" id="teamForm">
-      <button type="button" class="modal-x" data-close>&times;</button>
+    <form class="modal-card" id="teamForm" novalidate>
+      <button type="button" class="modal-x" data-close aria-label="Cerrar">&times;</button>
       <h3 id="teamTitle">Nuevo equipo</h3>
       <input type="hidden" name="id">
-      <label>Nombre del club<input name="name" required maxlength="60" placeholder="Ej. FC Barcelona"></label>
-      <label>País<input name="country" required maxlength="40" list="countries" placeholder="Ej. España"></label>
+      <label>Nombre del club<input name="name" required minlength="2" maxlength="60" placeholder="Ej. FC Barcelona"></label>
+      <label>País<input name="country" required minlength="3" maxlength="40" list="countries" placeholder="Ej. España"></label>
       <datalist id="countries"></datalist>
-      <p class="form-error" id="teamError"></p>
+      <p class="form-error" id="teamError" role="alert"></p>
       <button class="btn btn-primary btn-block" type="submit">Guardar</button>
     </form>
   </div>
 
-  <div class="modal hidden" id="detailModal" role="dialog" aria-modal="true">
+  <div class="modal hidden" id="detailModal" role="dialog" aria-modal="true" aria-label="Ficha del equipo">
     <div class="modal-card detail-card" id="detailCard">
-      <button type="button" class="modal-x" data-close>&times;</button>
+      <button type="button" class="modal-x" data-close aria-label="Cerrar">&times;</button>
       <div id="detailContent"></div>
     </div>
   </div>
 
-  <div class="modal hidden" id="confirmModal" role="dialog" aria-modal="true">
+  <div class="modal hidden" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
     <div class="modal-card">
-      <h3>¿Eliminar equipo?</h3>
+      <h3 id="confirmTitle">¿Confirmar?</h3>
       <p class="muted" id="confirmText"></p>
       <div class="row-btns">
-        <button class="btn btn-ghost" data-close>Cancelar</button>
-        <button class="btn btn-danger" id="confirmYes">Eliminar</button>
+        <button class="btn btn-ghost" data-close type="button">Cancelar</button>
+        <button class="btn btn-danger" id="confirmYes" type="button">Confirmar</button>
       </div>
     </div>
   </div>

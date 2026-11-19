@@ -1,2 +1,5 @@
-flask>=3.0
-flask-jwt-extended>=4.6
+flask>=3.0,<4
+flask-jwt-extended>=4.6,<5
+flask-cors>=4.0
+python-dotenv>=1.0
+gunicorn>=22.0; platform_system != "Windows"
